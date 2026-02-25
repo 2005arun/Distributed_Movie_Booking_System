@@ -1,0 +1,154 @@
+Functional Requirements:
+
+The end flow of Movie ticket Booking system:
+
+    user -> search the movie(related to location) -> movies details can shown -> select the theater -> 
+    select the screen -> select the seat -> payment service -> confirmed payment -> ticket can send to user via email or sms .
+
+Entity and Attributes are:
+
+    User Entity:
+        user_id (PK),
+        user_name,
+        User_email,
+        user_number,
+        password_hash,
+        created_at;
+    
+    Theater Entity:
+        theater_id (PK),
+        theater_name,
+        location_id(FK);
+    
+    location Entity:
+        location_id (PK)
+        street no,
+        city,
+        District,
+        state,
+        pincode;
+
+    Screen Entity :
+        screen Id(PK),
+        screen name,
+        total_seats,
+        theater_id(FK);
+
+    Movie Entity:
+        Movie_id(PK),
+        movie_name,
+        genre,
+        description,
+        language,
+        duration;
+
+    Show Entity:
+        show_id(Pk),
+        Movie_id(FK),
+        start time,
+        end time,
+        screen Id(FK),
+        price;
+
+    seat Entity:
+        screen_id(FK),
+        seat_id(PK),
+        seat_number,
+        seat_type;
+
+    seat_lock Entity:
+        seat_locd_id(PK),
+        seat_id(FK),
+        show_id(FK),
+        locked_by(user_id(FK)),
+        expiry_time;
+
+    Booking Entity:
+        booking_id,
+        show_id(FK),
+        user_id(FK),
+        status(confirmed,pending,cancelled),
+        total_amount,
+        created_at;
+
+    Booking_Seats Entity:
+        booking_id(FK),
+        seat_id(FK);
+
+    payment Entity:
+        booking_id(FK),
+        payment_id(PK),
+        status,
+        transaction_refernce,
+        payment_method;
+
+    Ticket Entity:
+        ticket_id(PK),
+        booking_id(FK),
+        issued_at;
+
+    Notification Entity:
+        notification_id (PK),
+        user_id(FK),
+        booking_id(Fk),
+        type(email,sms),
+        status,
+        send_at;
+
+    
+Core Micro Services are:
+    Auth Service,
+    Movie Service,
+    Show Service,
+    Booking Service,
+    Payment Service,
+    Ticket Service,
+    Notification Service;
+
+
+Non-Functional Requirements:
+
+Edges cases handles:
+    what happened if the more than one user can access the same seat?
+
+        case 1 -> i used an distributed cache for store the seat temporarily for the user the booking can confirmed within 
+        the time window means after stored the seats in booking_seats DB and removed the lock from redis cache.
+        i used an atomic operation in redis cache which user come first the redis can allocate for this user (using NX);
+        
+        case 2 -> simultaneously the key is insert in seat lock table temporarily and also prevent the inconsistency while 
+        redis crashed.once the payment is succeed iam stored it in DB;
+
+        it will check the redis in memory if key exists or not -> if it exits ,the response is already booked otherwise it moves 
+        seat lock table and DB for confirmation is the key exists or not -> if it not exits it stored it an DB after payment 
+        is succeed.
+
+        
+oAuth and JWT:
+
+only use JWT(JSON Web Token):
+    if the user signup using bcryptjs for password hashing
+    after the user login it moves to backend server it creates a JWT use of secret key once it created it send back to client.
+    the user before access the service the service can verify the user using new signature created using secret key and it matched with old 
+    signature and proceed 
+
+use both JWT and oAuth:
+    but there is an drawback of using only JWT because if the JWT can stolen by attacker means it cause an problem so reduce this we use an 
+    oAuth access token and refresh token. by using this access token is valid only 15 min and refresh token is valid 10 days. the access token 
+    is expired the user send the refresh token to get the access token and again it works fine
+
+only use oAuth(open Authorization):
+    the user can login using another trusted provider or another service. it give an google token id generated using google private key using
+    this token id, the backend can verify the user using google public key.
+
+
+Edges cases for payment:
+    If the user click the payment button twice?
+        the user click the payment button twice the DB insert duplicate key also...to overcome this we store an unique id(idempotency key).
+        this is unique for each booking.
+        Before the user click the payment or initiate the payment...the booking id is generated and it should be unique so it act as an 
+        idempotency key here. if the user click more than couple of time the DB stores only one request which one comes first it will store and 
+        next insert should be fail and return already paid or key exits or in processing state.
+        if the DB have an key already means it stop the payment..this ensure the double ticket and double payment is not happening
+
+
+to run on the other system -> docker compose -f docker-compose.prod.yml up -d

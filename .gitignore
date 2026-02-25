@@ -1,0 +1,11 @@
+node_modules/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.json
+*.log
+.env
+.DS_Store
+Thumbs.db
+frontend/dist/
+emails/

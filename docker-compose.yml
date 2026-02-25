@@ -1,0 +1,214 @@
+version: '3.8'
+
+# ====================================================
+# CineBook - Movie Ticket Booking System
+# Docker Compose (SQLite + In-Memory Redis/Kafka)
+# 
+# Run:  docker-compose up --build
+# Open: http://localhost:5173
+# Login: admin@movieticket.com / admin123
+# ====================================================
+
+services:
+  # ==================== Microservices ====================
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: mtbs-auth
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    volumes:
+      - sqlite-data:/app/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  movie-service:
+    build:
+      context: .
+      dockerfile: services/movie-service/Dockerfile
+    container_name: mtbs-movie
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+    volumes:
+      - sqlite-data:/app/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  show-service:
+    build:
+      context: .
+      dockerfile: services/show-service/Dockerfile
+    container_name: mtbs-show
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+    volumes:
+      - sqlite-data:/app/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  booking-service:
+    build:
+      context: .
+      dockerfile: services/booking-service/Dockerfile
+    container_name: mtbs-booking
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=production
+      - PORT=3004
+    volumes:
+      - sqlite-data:/app/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    container_name: mtbs-payment
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - TICKET_SERVICE_URL=http://ticket-service:3006
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3007
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    volumes:
+      - sqlite-data:/app/data
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  ticket-service:
+    build:
+      context: .
+      dockerfile: services/ticket-service/Dockerfile
+    container_name: mtbs-ticket
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=production
+      - PORT=3006
+    volumes:
+      - sqlite-data:/app/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    container_name: mtbs-notification
+    ports:
+      - "3007:3007"
+    environment:
+      - NODE_ENV=production
+      - PORT=3007
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - BREVO_API_KEY=${BREVO_API_KEY:-}
+      - BREVO_SENDER_EMAIL=${BREVO_SENDER_EMAIL:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+    volumes:
+      - sqlite-data:/app/data
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  # ==================== API Gateway ====================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: mtbs-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - MOVIE_SERVICE_URL=http://movie-service:3002
+      - SHOW_SERVICE_URL=http://show-service:3003
+      - BOOKING_SERVICE_URL=http://booking-service:3004
+      - PAYMENT_SERVICE_URL=http://payment-service:3005
+      - TICKET_SERVICE_URL=http://ticket-service:3006
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3007
+    depends_on:
+      - auth-service
+      - movie-service
+      - show-service
+      - booking-service
+      - payment-service
+      - ticket-service
+      - notification-service
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+  # ==================== Message Queue ====================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mtbs-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== Frontend ====================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mtbs-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+
+volumes:
+  sqlite-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+networks:
+  mtbs-network:
+    driver: bridge

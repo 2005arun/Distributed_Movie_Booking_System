@@ -1,0 +1,17 @@
+{
+  "name": "movie-ticket-booking-system",
+  "version": "1.0.0",
+  "description": "Distributed Movie Ticket Booking System - Microservices Architecture",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd shared && npm install && cd ../gateway && npm install && cd ../services/auth-service && npm install && cd ../movie-service && npm install && cd ../show-service && npm install && cd ../booking-service && npm install && cd ../payment-service && npm install && cd ../ticket-service && npm install && cd ../notification-service && npm install",
+    "dev:gateway": "cd gateway && npm run dev",
+    "dev:auth": "cd services/auth-service && npm run dev",
+    "dev:movie": "cd services/movie-service && npm run dev",
+    "dev:show": "cd services/show-service && npm run dev",
+    "dev:booking": "cd services/booking-service && npm run dev",
+    "dev:payment": "cd services/payment-service && npm run dev",
+    "dev:ticket": "cd services/ticket-service && npm run dev",
+    "dev:notification": "cd services/notification-service && npm run dev"
+  }
+}
