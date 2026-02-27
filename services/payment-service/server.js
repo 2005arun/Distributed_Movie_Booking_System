@@ -13,7 +13,6 @@ const paymentRoutes = require('./routes/payments');
 const app = express();
 const PORT = process.env.PORT || 3005;
 const logger = createLogger('payment-service');
-const db = getDB();
 const redis = createRedis();
 
 let kafkaProducer = null;
@@ -56,19 +55,27 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'payment-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/', (req, res, next) => {
-    req.kafkaProducer = kafkaProducer;
-    req.publishToQueue = publishToQueue;
-    req.isRabbitConnected = isRabbitConnected;
-    next();
-}, paymentRoutes(db, redis, logger));
+async function start() {
+    const db = await getDB();
 
-app.use(errorHandler);
+    app.use('/', (req, res, next) => {
+        req.kafkaProducer = kafkaProducer;
+        req.publishToQueue = publishToQueue;
+        req.isRabbitConnected = isRabbitConnected;
+        next();
+    }, paymentRoutes(db, redis, logger));
 
-Promise.all([initKafka(), initRabbitMQ()]).then(() => {
+    app.use(errorHandler);
+
+    await Promise.all([initKafka(), initRabbitMQ()]);
     app.listen(PORT, () => {
         logger.info(`💳 Payment Service running on http://localhost:${PORT}`);
     });
+}
+
+start().catch(err => {
+    logger.error('Failed to start payment-service:', err.message);
+    process.exit(1);
 });
 
 module.exports = app;

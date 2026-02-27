@@ -6,7 +6,7 @@ module.exports = (db, redis, logger) => {
     const router = express.Router();
 
     // ==================== LIST SHOWS ====================
-    router.get('/shows', (req, res) => {
+    router.get('/shows', async (req, res) => {
         try {
             const { movie_id, location_id, date } = req.query;
 
@@ -20,19 +20,19 @@ module.exports = (db, redis, logger) => {
         JOIN screens sc ON s.screen_id = sc.id
         JOIN theaters t ON sc.theater_id = t.id
         JOIN locations l ON t.location_id = l.id
-        WHERE s.is_active = 1 AND s.start_time > datetime('now')
+        WHERE s.is_active = true AND s.start_time > NOW()
       `;
             const params = [];
 
             if (movie_id) { sql += ' AND s.movie_id = ?'; params.push(movie_id); }
             if (location_id) { sql += ' AND t.location_id = ?'; params.push(location_id); }
             if (date) {
-                sql += ' AND date(s.start_time) = date(?)';
+                sql += ' AND s.start_time::date = ?::date';
                 params.push(date);
             }
 
             sql += ' ORDER BY s.start_time';
-            const shows = db.prepare(sql).all(...params);
+            const shows = await db.all(sql, ...params);
 
             // Group by theater
             const grouped = {};
@@ -60,26 +60,26 @@ module.exports = (db, redis, logger) => {
         try {
             const { id } = req.params;
 
-            const show = db.prepare(`
+            const show = await db.get(`
         SELECT s.*, m.title as movie_title, m.id as movie_id, sc.name as screen_name, t.name as theater_name
         FROM shows s
         JOIN movies m ON s.movie_id = m.id
         JOIN screens sc ON s.screen_id = sc.id
         JOIN theaters t ON sc.theater_id = t.id
         WHERE s.id = ?
-      `).get(id);
+      `, id);
 
             if (!show) return res.status(404).json({ error: 'Show not found' });
 
             // Get all seats for this screen
-            const seats = db.prepare('SELECT * FROM seats WHERE screen_id = ? ORDER BY row_label, seat_number').all(show.screen_id);
+            const seats = await db.all('SELECT * FROM seats WHERE screen_id = ? ORDER BY row_label, seat_number', show.screen_id);
 
             // Get booked seats
-            const bookedSeats = db.prepare(`
+            const bookedSeats = await db.all(`
         SELECT bs.seat_id FROM booking_seats bs
         JOIN bookings b ON bs.booking_id = b.id
         WHERE bs.show_id = ? AND b.status IN ('PENDING', 'CONFIRMED')
-      `).all(id);
+      `, id);
             const bookedIds = new Set(bookedSeats.map(s => s.seat_id));
 
             // Check locks (in-memory cache)
@@ -120,17 +120,17 @@ module.exports = (db, redis, logger) => {
     });
 
     // ==================== CREATE SHOW (Admin) ====================
-    router.post('/shows', authMiddleware, adminMiddleware, (req, res) => {
+    router.post('/shows', authMiddleware, adminMiddleware, async (req, res) => {
         try {
             const { movie_id, screen_id, start_time, end_time, base_price } = req.body;
             if (!movie_id || !screen_id || !start_time || !end_time || !base_price) {
                 return res.status(400).json({ error: 'All fields required' });
             }
             const id = uuidv4();
-            db.prepare('INSERT INTO shows (id, movie_id, screen_id, start_time, end_time, base_price) VALUES (?,?,?,?,?,?)').run(
+            await db.run('INSERT INTO shows (id, movie_id, screen_id, start_time, end_time, base_price) VALUES (?,?,?,?,?,?)',
                 id, movie_id, screen_id, start_time, end_time, base_price
             );
-            const show = db.prepare('SELECT * FROM shows WHERE id = ?').get(id);
+            const show = await db.get('SELECT * FROM shows WHERE id = ?', id);
             res.status(201).json(show);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -138,14 +138,14 @@ module.exports = (db, redis, logger) => {
     });
 
     // ==================== THEATERS ====================
-    router.get('/theaters', (req, res) => {
+    router.get('/theaters', async (req, res) => {
         try {
             const { location_id } = req.query;
             let sql = 'SELECT t.*, l.city, l.state FROM theaters t JOIN locations l ON t.location_id = l.id';
             const params = [];
             if (location_id) { sql += ' WHERE t.location_id = ?'; params.push(location_id); }
             sql += ' ORDER BY t.name';
-            res.json(db.prepare(sql).all(...params));
+            res.json(await db.all(sql, ...params));
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

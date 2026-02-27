@@ -11,7 +11,6 @@ const movieRoutes = require('./routes/movies');
 const app = express();
 const PORT = process.env.PORT || 3002;
 const logger = createLogger('movie-service');
-const db = getDB();
 const redis = createRedis();
 
 app.use(helmet());
@@ -23,11 +22,18 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'movie-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/', movieRoutes(db, redis, logger));
-app.use(errorHandler);
+async function start() {
+    const db = await getDB();
+    app.use('/', movieRoutes(db, redis, logger));
+    app.use(errorHandler);
+    app.listen(PORT, () => {
+        logger.info(`🎥 Movie Service running on http://localhost:${PORT}`);
+    });
+}
 
-app.listen(PORT, () => {
-    logger.info(`🎥 Movie Service running on http://localhost:${PORT}`);
+start().catch(err => {
+    logger.error('Failed to start movie-service:', err.message);
+    process.exit(1);
 });
 
 module.exports = app;

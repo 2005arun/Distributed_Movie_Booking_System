@@ -1,8 +1,6 @@
-version: '3.8'
-
 # ====================================================
 # CineBook - Movie Ticket Booking System
-# Docker Compose (SQLite + In-Memory Redis/Kafka)
+# Docker Compose (PostgreSQL + Redis + RabbitMQ)
 # 
 # Run:  docker-compose up --build
 # Open: http://localhost:5173
@@ -10,8 +8,30 @@ version: '3.8'
 # ====================================================
 
 services:
+  # ==================== Database ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: mtbs-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=movieticket
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d movieticket"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # ==================== Microservices ====================
   auth-service:
+    image: arun498/auth-service:3.9
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
@@ -21,13 +41,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-    volumes:
-      - sqlite-data:/app/data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   movie-service:
+    image: arun498/movie-service:3.9
     build:
       context: .
       dockerfile: services/movie-service/Dockerfile
@@ -37,13 +64,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3002
-    volumes:
-      - sqlite-data:/app/data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   show-service:
+    image: arun498/show-service:3.9
     build:
       context: .
       dockerfile: services/show-service/Dockerfile
@@ -53,13 +87,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3003
-    volumes:
-      - sqlite-data:/app/data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   booking-service:
+    image: arun498/booking-service:3.9
     build:
       context: .
       dockerfile: services/booking-service/Dockerfile
@@ -69,13 +110,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3004
-    volumes:
-      - sqlite-data:/app/data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   payment-service:
+    image: arun498/payment-service:3.9
     build:
       context: .
       dockerfile: services/payment-service/Dockerfile
@@ -85,18 +133,25 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3005
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
       - TICKET_SERVICE_URL=http://ticket-service:3006
       - NOTIFICATION_SERVICE_URL=http://notification-service:3007
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
-    volumes:
-      - sqlite-data:/app/data
     depends_on:
-      - rabbitmq
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   ticket-service:
+    image: arun498/ticket-service:3.9
     build:
       context: .
       dockerfile: services/ticket-service/Dockerfile
@@ -106,13 +161,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3006
-    volumes:
-      - sqlite-data:/app/data
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   notification-service:
+    image: arun498/notification-service:3.9
     build:
       context: .
       dockerfile: services/notification-service/Dockerfile
@@ -122,6 +184,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3007
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=movieticket
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
       - BREVO_API_KEY=${BREVO_API_KEY:-}
       - BREVO_SENDER_EMAIL=${BREVO_SENDER_EMAIL:-}
@@ -130,16 +197,18 @@ services:
       - SMTP_PORT=587
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
-    volumes:
-      - sqlite-data:/app/data
     depends_on:
-      - rabbitmq
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - mtbs-network
 
   # ==================== API Gateway ====================
   api-gateway:
+    image: arun498/api-gateway:3.9
     build:
       context: .
       dockerfile: gateway/Dockerfile
@@ -191,6 +260,7 @@ services:
 
   # ==================== Frontend ====================
   frontend:
+    image: arun498/frontend:3.9
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -204,7 +274,7 @@ services:
       - mtbs-network
 
 volumes:
-  sqlite-data:
+  postgres-data:
     driver: local
   rabbitmq-data:
     driver: local

@@ -25,7 +25,10 @@ class ApiService {
 
         const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
 
-        if (response.status === 401) {
+        // Don't intercept 401 for auth endpoints — let the actual error propagate
+        const isAuthEndpoint = url.startsWith('/auth/login') || url.startsWith('/auth/signup') || url.startsWith('/auth/google') || url.startsWith('/auth/refresh');
+
+        if (response.status === 401 && !isAuthEndpoint) {
             // Try to refresh token
             const refreshed = await this.refreshToken();
             if (refreshed) {

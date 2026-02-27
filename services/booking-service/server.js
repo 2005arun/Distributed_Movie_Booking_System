@@ -12,10 +12,10 @@ const bookingRoutes = require('./routes/bookings');
 const app = express();
 const PORT = process.env.PORT || 3004;
 const logger = createLogger('booking-service');
-const db = getDB();
 const redis = createRedis();
 
 let kafkaProducer = null;
+let db = null;
 
 async function initKafka() {
     try {
@@ -35,27 +35,35 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'booking-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/', (req, res, next) => {
-    req.kafkaProducer = kafkaProducer;
-    next();
-}, bookingRoutes(db, redis, logger));
+async function start() {
+    db = await getDB();
 
-app.use(errorHandler);
+    app.use('/', (req, res, next) => {
+        req.kafkaProducer = kafkaProducer;
+        next();
+    }, bookingRoutes(db, redis, logger));
 
-// Clean expired locks every 60s
-setInterval(() => {
-    try {
-        const deleted = db.prepare("DELETE FROM seat_locks WHERE expires_at < datetime('now')").run();
-        if (deleted.changes > 0) logger.info(`Cleaned ${deleted.changes} expired seat locks`);
-    } catch (err) {
-        logger.error('Lock cleanup failed:', err.message);
-    }
-}, 60000);
+    app.use(errorHandler);
 
-initKafka().then(() => {
+    // Clean expired locks every 60s
+    setInterval(async () => {
+        try {
+            const deleted = await db.run("DELETE FROM seat_locks WHERE expires_at < NOW()");
+            if (deleted.changes > 0) logger.info(`Cleaned ${deleted.changes} expired seat locks`);
+        } catch (err) {
+            logger.error('Lock cleanup failed:', err.message);
+        }
+    }, 60000);
+
+    await initKafka();
     app.listen(PORT, () => {
         logger.info(`🎟️ Booking Service running on http://localhost:${PORT}`);
     });
+}
+
+start().catch(err => {
+    logger.error('Failed to start booking-service:', err.message);
+    process.exit(1);
 });
 
 module.exports = app;

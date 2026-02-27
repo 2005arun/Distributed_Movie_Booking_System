@@ -20,7 +20,7 @@ module.exports = (db, redis, logger) => {
                 return res.status(400).json({ error: 'Maximum 10 seats per booking' });
             }
 
-            const show = db.prepare('SELECT * FROM shows WHERE id = ? AND is_active = 1').get(show_id);
+            const show = await db.get('SELECT * FROM shows WHERE id = ? AND is_active = true', show_id);
             if (!show) return res.status(404).json({ error: 'Show not found' });
 
             // LAYER 1: In-memory lock (Redis replacement)
@@ -47,11 +47,11 @@ module.exports = (db, redis, logger) => {
 
             for (const seatId of seat_ids) {
                 // Check if already booked
-                const existingBooking = db.prepare(`
+                const existingBooking = await db.get(`
           SELECT bs.id FROM booking_seats bs
           JOIN bookings b ON bs.booking_id = b.id
           WHERE bs.show_id = ? AND bs.seat_id = ? AND b.status IN ('CONFIRMED', 'PENDING')
-        `).get(show_id, seatId);
+        `, show_id, seatId);
 
                 if (existingBooking) {
                     for (const id of lockedSeats) await redis.del(`seat:${show_id}:${id}`);
@@ -59,21 +59,21 @@ module.exports = (db, redis, logger) => {
                 }
 
                 // Upsert lock - delete expired then insert
-                db.prepare("DELETE FROM seat_locks WHERE show_id = ? AND seat_id = ? AND expires_at < datetime('now')").run(show_id, seatId);
+                await db.run("DELETE FROM seat_locks WHERE show_id = ? AND seat_id = ? AND expires_at < NOW()", show_id, seatId);
                 try {
-                    db.prepare('INSERT INTO seat_locks (id, show_id, seat_id, user_id, expires_at) VALUES (?, ?, ?, ?, ?)').run(
+                    await db.run('INSERT INTO seat_locks (id, show_id, seat_id, user_id, expires_at) VALUES (?, ?, ?, ?, ?)',
                         uuidv4(), show_id, seatId, userId, expiresAt
                     );
                 } catch (err) {
-                    if (err.message.includes('UNIQUE')) {
+                    if (err.code === '23505') {
                         // Lock exists — check if it's ours
-                        const existing = db.prepare('SELECT user_id FROM seat_locks WHERE show_id = ? AND seat_id = ?').get(show_id, seatId);
+                        const existing = await db.get('SELECT user_id FROM seat_locks WHERE show_id = ? AND seat_id = ?', show_id, seatId);
                         if (existing && existing.user_id !== userId) {
                             for (const id of lockedSeats) await redis.del(`seat:${show_id}:${id}`);
                             return res.status(409).json({ error: 'Seat locked by another user', seat_id: seatId });
                         }
                         // It's our lock, update it
-                        db.prepare('UPDATE seat_locks SET expires_at = ? WHERE show_id = ? AND seat_id = ? AND user_id = ?').run(
+                        await db.run('UPDATE seat_locks SET expires_at = ? WHERE show_id = ? AND seat_id = ? AND user_id = ?',
                             expiresAt, show_id, seatId, userId
                         );
                     } else throw err;
@@ -111,8 +111,8 @@ module.exports = (db, redis, logger) => {
                 }
             }
 
-            const show = db.prepare('SELECT * FROM shows WHERE id = ?').get(show_id);
-            const seats = db.prepare(`SELECT * FROM seats WHERE id IN (${seat_ids.map(() => '?').join(',')})`).all(...seat_ids);
+            const show = await db.get('SELECT * FROM shows WHERE id = ?', show_id);
+            const seats = await db.all(`SELECT * FROM seats WHERE id IN (${seat_ids.map(() => '?').join(',')})`, ...seat_ids);
 
             if (seats.length !== seat_ids.length) {
                 return res.status(400).json({ error: 'Some seats not found' });
@@ -129,24 +129,24 @@ module.exports = (db, redis, logger) => {
             const bookingId = uuidv4();
 
             // Transaction
-            const insertBooking = db.prepare('INSERT INTO bookings (id, user_id, show_id, status, total_amount, seat_count) VALUES (?, ?, ?, ?, ?, ?)');
-            const insertBookingSeat = db.prepare('INSERT INTO booking_seats (id, booking_id, show_id, seat_id, price) VALUES (?, ?, ?, ?, ?)');
-            const updateLock = db.prepare('UPDATE seat_locks SET booking_id = ? WHERE show_id = ? AND seat_id = ? AND user_id = ?');
-
-            const transaction = db.transaction(() => {
-                insertBooking.run(bookingId, userId, show_id, 'PENDING', totalAmount.toFixed(2), seat_ids.length);
-                for (const sp of seatPrices) {
-                    insertBookingSeat.run(uuidv4(), bookingId, show_id, sp.seat_id, sp.price);
-                }
-                for (const seatId of seat_ids) {
-                    updateLock.run(bookingId, show_id, seatId, userId);
-                }
-            });
-
             try {
-                transaction();
+                await db.transaction(async (tx) => {
+                    await tx.run('INSERT INTO bookings (id, user_id, show_id, status, total_amount, seat_count) VALUES (?, ?, ?, ?, ?, ?)',
+                        bookingId, userId, show_id, 'PENDING', totalAmount.toFixed(2), seat_ids.length
+                    );
+                    for (const sp of seatPrices) {
+                        await tx.run('INSERT INTO booking_seats (id, booking_id, show_id, seat_id, price) VALUES (?, ?, ?, ?, ?)',
+                            uuidv4(), bookingId, show_id, sp.seat_id, sp.price
+                        );
+                    }
+                    for (const seatId of seat_ids) {
+                        await tx.run('UPDATE seat_locks SET booking_id = ? WHERE show_id = ? AND seat_id = ? AND user_id = ?',
+                            bookingId, show_id, seatId, userId
+                        );
+                    }
+                });
             } catch (err) {
-                if (err.message.includes('UNIQUE')) {
+                if (err.code === '23505') {
                     return res.status(409).json({ error: 'Seat already booked by another user' });
                 }
                 throw err;
@@ -172,9 +172,9 @@ module.exports = (db, redis, logger) => {
 
     // ==================== USER'S BOOKINGS ====================
     // NOTE: This must be defined BEFORE /bookings/:id to avoid :id matching "user"
-    router.get('/bookings/user/me', authMiddleware, (req, res) => {
+    router.get('/bookings/user/me', authMiddleware, async (req, res) => {
         try {
-            const bookings = db.prepare(`
+            const bookings = await db.all(`
         SELECT b.*, m.title as movie_title, m.poster_url,
                s.start_time, s.end_time,
                sc.name as screen_name, t.name as theater_name
@@ -185,7 +185,7 @@ module.exports = (db, redis, logger) => {
         JOIN theaters t ON sc.theater_id = t.id
         WHERE b.user_id = ?
         ORDER BY b.created_at DESC
-      `).all(req.user.id);
+      `, req.user.id);
             res.json(bookings);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -193,9 +193,9 @@ module.exports = (db, redis, logger) => {
     });
 
     // ==================== GET BOOKING ====================
-    router.get('/bookings/:id', authMiddleware, (req, res) => {
+    router.get('/bookings/:id', authMiddleware, async (req, res) => {
         try {
-            const booking = db.prepare(`
+            const booking = await db.get(`
         SELECT b.*, m.title as movie_title, m.poster_url,
                s.start_time, s.end_time,
                sc.name as screen_name, t.name as theater_name
@@ -205,22 +205,22 @@ module.exports = (db, redis, logger) => {
         JOIN screens sc ON s.screen_id = sc.id
         JOIN theaters t ON sc.theater_id = t.id
         WHERE b.id = ?
-      `).get(req.params.id);
+      `, req.params.id);
 
             if (!booking) return res.status(404).json({ error: 'Booking not found' });
             if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
                 return res.status(403).json({ error: 'Access denied' });
             }
 
-            const seats = db.prepare(`
+            const seats = await db.all(`
         SELECT se.row_label, se.seat_number, se.seat_type, bs.price
         FROM booking_seats bs
         JOIN seats se ON bs.seat_id = se.id
         WHERE bs.booking_id = ?
-      `).all(booking.id);
+      `, booking.id);
 
-            const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
-            const ticket = db.prepare('SELECT * FROM tickets WHERE booking_id = ?').get(booking.id);
+            const payment = await db.get('SELECT * FROM payments WHERE booking_id = ?', booking.id);
+            const ticket = await db.get('SELECT * FROM tickets WHERE booking_id = ?', booking.id);
 
             res.json({ ...booking, seats, payment, ticket });
         } catch (err) {
@@ -231,21 +231,21 @@ module.exports = (db, redis, logger) => {
     // ==================== CANCEL BOOKING ====================
     router.post('/bookings/:id/cancel', authMiddleware, async (req, res) => {
         try {
-            const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+            const booking = await db.get('SELECT * FROM bookings WHERE id = ?', req.params.id);
             if (!booking) return res.status(404).json({ error: 'Booking not found' });
             if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
                 return res.status(403).json({ error: 'Access denied' });
             }
             if (booking.status === 'CANCELLED') return res.status(400).json({ error: 'Already cancelled' });
 
-            const bookingSeats = db.prepare('SELECT * FROM booking_seats WHERE booking_id = ?').all(booking.id);
+            const bookingSeats = await db.all('SELECT * FROM booking_seats WHERE booking_id = ?', booking.id);
 
-            db.transaction(() => {
-                db.prepare("UPDATE bookings SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(booking.id);
-                db.prepare('DELETE FROM seat_locks WHERE booking_id = ?').run(booking.id);
-                db.prepare("UPDATE tickets SET status = 'INVALIDATED' WHERE booking_id = ?").run(booking.id);
-                db.prepare('DELETE FROM booking_seats WHERE booking_id = ?').run(booking.id);
-            })();
+            await db.transaction(async (tx) => {
+                await tx.run("UPDATE bookings SET status = 'CANCELLED', updated_at = NOW() WHERE id = ?", booking.id);
+                await tx.run('DELETE FROM seat_locks WHERE booking_id = ?', booking.id);
+                await tx.run("UPDATE tickets SET status = 'INVALIDATED' WHERE booking_id = ?", booking.id);
+                await tx.run('DELETE FROM booking_seats WHERE booking_id = ?', booking.id);
+            });
 
             // Release in-memory locks
             for (const bs of bookingSeats) {

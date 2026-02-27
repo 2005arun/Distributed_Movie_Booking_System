@@ -10,7 +10,6 @@ const authRoutes = require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const logger = createLogger('auth-service');
-const db = getDB();
 
 app.use(helmet());
 app.use(cors({ origin: '*', credentials: true }));
@@ -21,11 +20,18 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'auth-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/', authRoutes(db, logger));
-app.use(errorHandler);
+async function start() {
+    const db = await getDB();
+    app.use('/', authRoutes(db, logger));
+    app.use(errorHandler);
+    app.listen(PORT, () => {
+        logger.info(`🔐 Auth Service running on http://localhost:${PORT}`);
+    });
+}
 
-app.listen(PORT, () => {
-    logger.info(`🔐 Auth Service running on http://localhost:${PORT}`);
+start().catch(err => {
+    logger.error('Failed to start auth-service:', err.message);
+    process.exit(1);
 });
 
 module.exports = app;

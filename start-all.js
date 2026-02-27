@@ -40,7 +40,13 @@ console.log('╚═════════════════════�
 
 for (const svc of services) {
     const cwd = path.join(ROOT, svc.dir);
-    const extraEnv = {};
+    const extraEnv = {
+        DB_HOST: process.env.DB_HOST || 'localhost',
+        DB_PORT: process.env.DB_PORT || '5432',
+        DB_NAME: process.env.DB_NAME || 'movieticket',
+        DB_USER: process.env.DB_USER || 'postgres',
+        DB_PASSWORD: process.env.DB_PASSWORD || 'postgres',
+    };
     if (svc.name === 'Notification Service') {
         extraEnv.BREVO_API_KEY = process.env.BREVO_API_KEY || '';
         extraEnv.BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || '';

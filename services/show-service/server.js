@@ -11,7 +11,6 @@ const showRoutes = require('./routes/shows');
 const app = express();
 const PORT = process.env.PORT || 3003;
 const logger = createLogger('show-service');
-const db = getDB();
 const redis = createRedis();
 
 app.use(helmet());
@@ -23,11 +22,18 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'show-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/', showRoutes(db, redis, logger));
-app.use(errorHandler);
+async function start() {
+    const db = await getDB();
+    app.use('/', showRoutes(db, redis, logger));
+    app.use(errorHandler);
+    app.listen(PORT, () => {
+        logger.info(`🎬 Show Service running on http://localhost:${PORT}`);
+    });
+}
 
-app.listen(PORT, () => {
-    logger.info(`🎬 Show Service running on http://localhost:${PORT}`);
+start().catch(err => {
+    logger.error('Failed to start show-service:', err.message);
+    process.exit(1);
 });
 
 module.exports = app;

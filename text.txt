@@ -151,4 +151,59 @@ Edges cases for payment:
         if the DB have an key already means it stop the payment..this ensure the double ticket and double payment is not happening
 
 
-to run on the other system -> docker compose -f docker-compose.prod.yml up -d
+to run on the other system :
+Prerequisites: Only Docker Desktop installed
+# Step 1: Clone the repository
+git clone https://github.com/2005arun/Distributed_Movie_Booking_System.git
+cd Distributed_Movie_Booking_System
+
+# Step 2: Start everything with one command
+docker compose -f docker-compose.prod.yml up -d
+
+# Wait 30 seconds for all containers to initialize
+
+# Step 3: Access the app
+# Frontend:    http://localhost:5173
+# API Gateway: http://localhost:3000
+# RabbitMQ:    http://localhost:15672 (guest/guest)
+
+our system :
+# Step 1: Kill all old processes and containers
+taskkill /F /IM node.exe 2>$null
+docker stop $(docker ps -q) 2>$null
+docker rm $(docker ps -aq) 2>$null
+
+# Step 2: Start PostgreSQL & RabbitMQ only (in Docker)
+cd D:\booking_movie_ticket
+docker compose up -d postgres rabbitmq
+
+# Wait 15 seconds for database to initialize
+
+# Step 3: Install dependencies (if first time)
+npm install
+cd gateway && npm install && cd ..
+cd services/auth-service && npm install && cd ../..
+cd services/movie-service && npm install && cd ../..
+cd services/show-service && npm install && cd ../..
+cd services/booking-service && npm install && cd ../..
+cd services/payment-service && npm install && cd ../..
+cd services/ticket-service && npm install && cd ../..
+cd services/notification-service && npm install && cd ../..
+cd frontend && npm install && cd ..
+
+# Step 4: Start all 8 backend microservices
+node start-all.js
+
+# Step 5: In a NEW terminal, start frontend
+cd D:\booking_movie_ticket\frontend
+npm run dev
+
+To Stop Everything Later:
+taskkill /F /IM node.exe 2>$null
+docker stop mtbs-rabbitmq
+
+Access:
+http://localhost:5173	Frontend App
+http://localhost:3000	API Gateway
+http://localhost:15672	RabbitMQ Dashboard (guest/guest)
+

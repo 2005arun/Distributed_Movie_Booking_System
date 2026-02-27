@@ -12,14 +12,14 @@ module.exports = (db, redis, logger) => {
     const router = express.Router();
 
     // ==================== INITIATE PAYMENT ====================
-    router.post('/payments/initiate', authMiddleware, (req, res) => {
+    router.post('/payments/initiate', authMiddleware, async (req, res) => {
         try {
             const { booking_id } = req.body;
             const userId = req.user.id;
 
             if (!booking_id) return res.status(400).json({ error: 'booking_id required' });
 
-            const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking_id);
+            const booking = await db.get('SELECT * FROM bookings WHERE id = ?', booking_id);
             if (!booking) return res.status(404).json({ error: 'Booking not found' });
             if (booking.user_id !== userId) return res.status(403).json({ error: 'Access denied' });
             if (booking.status !== 'PENDING') {
@@ -27,12 +27,12 @@ module.exports = (db, redis, logger) => {
             }
 
             // Idempotency check
-            const existing = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking_id);
+            const existing = await db.get('SELECT * FROM payments WHERE booking_id = ?', booking_id);
             if (existing) {
                 if (existing.status === 'SUCCESS') return res.json({ payment: existing, message: 'Payment already completed' });
                 if (existing.status === 'PROCESSING') return res.json({ payment: existing, message: 'Payment being processed' });
                 if (existing.status === 'FAILED') {
-                    db.prepare('DELETE FROM payments WHERE id = ?').run(existing.id);
+                    await db.run('DELETE FROM payments WHERE id = ?', existing.id);
                 }
             }
 
@@ -40,12 +40,12 @@ module.exports = (db, redis, logger) => {
             const transRef = `TXN-${Date.now()}-${paymentId.slice(0, 8)}`;
             const orderId = `ORD-${booking_id.slice(0, 8)}-${Date.now()}`;
 
-            db.prepare(`INSERT INTO payments (id, booking_id, user_id, amount, status, transaction_reference, gateway_order_id, gateway) 
-                  VALUES (?, ?, ?, ?, 'PROCESSING', ?, ?, 'razorpay')`).run(
+            await db.run(`INSERT INTO payments (id, booking_id, user_id, amount, status, transaction_reference, gateway_order_id, gateway) 
+                  VALUES (?, ?, ?, ?, 'PROCESSING', ?, ?, 'razorpay')`,
                 paymentId, booking_id, userId, booking.total_amount, transRef, orderId
             );
 
-            const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+            const payment = await db.get('SELECT * FROM payments WHERE id = ?', paymentId);
 
             logger.info(`Payment initiated: ${paymentId} for booking ${booking_id}`);
             res.status(201).json({
@@ -69,7 +69,7 @@ module.exports = (db, redis, logger) => {
             const { gateway_order_id, gateway_payment_id, status, amount } = req.body;
             logger.info(`🔔 WEBHOOK CALLED: order=${gateway_order_id}, status=${status}, rabbitConnected=${req.isRabbitConnected ? req.isRabbitConnected() : 'NO_FUNC'}`);
 
-            const payment = db.prepare('SELECT * FROM payments WHERE gateway_order_id = ?').get(gateway_order_id);
+            const payment = await db.get('SELECT * FROM payments WHERE gateway_order_id = ?', gateway_order_id);
             if (!payment) return res.status(404).json({ error: 'Payment not found' });
 
             // Duplicate webhook protection
@@ -84,17 +84,17 @@ module.exports = (db, redis, logger) => {
 
             if (status === 'SUCCESS' || status === 'captured') {
                 // Update payment
-                db.prepare("UPDATE payments SET status = 'SUCCESS', gateway_payment_id = ?, webhook_received_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(
+                await db.run("UPDATE payments SET status = 'SUCCESS', gateway_payment_id = ?, webhook_received_at = NOW(), updated_at = NOW() WHERE id = ?",
                     gateway_payment_id, payment.id
                 );
 
                 // Confirm booking
-                db.prepare("UPDATE bookings SET status = 'CONFIRMED', updated_at = datetime('now') WHERE id = ?").run(payment.booking_id);
+                await db.run("UPDATE bookings SET status = 'CONFIRMED', updated_at = NOW() WHERE id = ?", payment.booking_id);
 
                 // Release locks
-                const bookingSeats = db.prepare('SELECT * FROM booking_seats WHERE booking_id = ?').all(payment.booking_id);
-                const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(payment.booking_id);
-                db.prepare('DELETE FROM seat_locks WHERE booking_id = ?').run(payment.booking_id);
+                const bookingSeats = await db.all('SELECT * FROM booking_seats WHERE booking_id = ?', payment.booking_id);
+                const booking = await db.get('SELECT * FROM bookings WHERE id = ?', payment.booking_id);
+                await db.run('DELETE FROM seat_locks WHERE booking_id = ?', payment.booking_id);
 
                 for (const bs of bookingSeats) {
                     await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
@@ -163,15 +163,15 @@ module.exports = (db, redis, logger) => {
 
                 logger.info(`Payment SUCCESS: ${payment.id}, booking ${payment.booking_id} CONFIRMED`);
             } else if (status === 'FAILED' || status === 'failed') {
-                db.prepare("UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = datetime('now') WHERE id = ?").run(
+                await db.run("UPDATE payments SET status = 'FAILED', failure_reason = ?, updated_at = NOW() WHERE id = ?",
                     req.body.error_reason || 'Payment failed', payment.id
                 );
-                db.prepare("UPDATE bookings SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(payment.booking_id);
+                await db.run("UPDATE bookings SET status = 'CANCELLED', updated_at = NOW() WHERE id = ?", payment.booking_id);
 
-                const bookingSeats = db.prepare('SELECT * FROM booking_seats WHERE booking_id = ?').all(payment.booking_id);
-                const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(payment.booking_id);
-                db.prepare('DELETE FROM seat_locks WHERE booking_id = ?').run(payment.booking_id);
-                db.prepare('DELETE FROM booking_seats WHERE booking_id = ?').run(payment.booking_id);
+                const bookingSeats = await db.all('SELECT * FROM booking_seats WHERE booking_id = ?', payment.booking_id);
+                const booking = await db.get('SELECT * FROM bookings WHERE id = ?', payment.booking_id);
+                await db.run('DELETE FROM seat_locks WHERE booking_id = ?', payment.booking_id);
+                await db.run('DELETE FROM booking_seats WHERE booking_id = ?', payment.booking_id);
 
                 for (const bs of bookingSeats) {
                     await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
@@ -192,7 +192,7 @@ module.exports = (db, redis, logger) => {
         try {
             const { booking_id, success = true } = req.body;
 
-            const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking_id);
+            const payment = await db.get('SELECT * FROM payments WHERE booking_id = ?', booking_id);
             if (!payment) return res.status(404).json({ error: 'Payment not found. Initiate first.' });
 
             // Directly call webhook logic internally
@@ -216,14 +216,14 @@ module.exports = (db, redis, logger) => {
             }
 
             if (success) {
-                db.prepare("UPDATE payments SET status = 'SUCCESS', gateway_payment_id = ?, webhook_received_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(
+                await db.run("UPDATE payments SET status = 'SUCCESS', gateway_payment_id = ?, webhook_received_at = NOW(), updated_at = NOW() WHERE id = ?",
                     webhookPayload.gateway_payment_id, payment.id
                 );
-                db.prepare("UPDATE bookings SET status = 'CONFIRMED', updated_at = datetime('now') WHERE id = ?").run(payment.booking_id);
-                db.prepare('DELETE FROM seat_locks WHERE booking_id = ?').run(payment.booking_id);
+                await db.run("UPDATE bookings SET status = 'CONFIRMED', updated_at = NOW() WHERE id = ?", payment.booking_id);
+                await db.run('DELETE FROM seat_locks WHERE booking_id = ?', payment.booking_id);
 
-                const bookingSeats = db.prepare('SELECT * FROM booking_seats WHERE booking_id = ?').all(payment.booking_id);
-                const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(payment.booking_id);
+                const bookingSeats = await db.all('SELECT * FROM booking_seats WHERE booking_id = ?', payment.booking_id);
+                const booking = await db.get('SELECT * FROM bookings WHERE id = ?', payment.booking_id);
                 for (const bs of bookingSeats) {
                     await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
                 }
@@ -237,9 +237,9 @@ module.exports = (db, redis, logger) => {
                 logger.info(`Payment simulated SUCCESS for booking ${booking_id}`);
                 res.json({ message: 'Payment succeeded (simulated)', status: 'ok' });
             } else {
-                db.prepare("UPDATE payments SET status = 'FAILED', updated_at = datetime('now') WHERE id = ?").run(payment.id);
-                db.prepare("UPDATE bookings SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(payment.booking_id);
-                db.prepare('DELETE FROM booking_seats WHERE booking_id = ?').run(payment.booking_id);
+                await db.run("UPDATE payments SET status = 'FAILED', updated_at = NOW() WHERE id = ?", payment.id);
+                await db.run("UPDATE bookings SET status = 'CANCELLED', updated_at = NOW() WHERE id = ?", payment.booking_id);
+                await db.run('DELETE FROM booking_seats WHERE booking_id = ?', payment.booking_id);
                 res.json({ message: 'Payment failed (simulated)', status: 'ok' });
             }
         } catch (err) {
@@ -249,9 +249,9 @@ module.exports = (db, redis, logger) => {
     });
 
     // ==================== GET PAYMENT STATUS ====================
-    router.get('/payments/:bookingId', authMiddleware, (req, res) => {
+    router.get('/payments/:bookingId', authMiddleware, async (req, res) => {
         try {
-            const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(req.params.bookingId);
+            const payment = await db.get('SELECT * FROM payments WHERE booking_id = ?', req.params.bookingId);
             if (!payment) return res.status(404).json({ error: 'Payment not found' });
             if (payment.user_id !== req.user.id && req.user.role !== 'admin') {
                 return res.status(403).json({ error: 'Access denied' });
@@ -266,19 +266,19 @@ module.exports = (db, redis, logger) => {
     router.post('/payments/refund', authMiddleware, async (req, res) => {
         try {
             const { booking_id } = req.body;
-            const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking_id);
+            const payment = await db.get('SELECT * FROM payments WHERE booking_id = ?', booking_id);
             if (!payment) return res.status(404).json({ error: 'Payment not found' });
             if (payment.status !== 'SUCCESS') return res.status(400).json({ error: 'Can only refund successful payments' });
             if (payment.refund_reference) return res.json({ message: 'Refund already processed', refund_reference: payment.refund_reference });
 
             const refundRef = `REFUND-${Date.now()}-${uuidv4().slice(0, 8)}`;
 
-            db.transaction(() => {
-                db.prepare("UPDATE payments SET status = 'REFUNDED', refund_reference = ?, updated_at = datetime('now') WHERE id = ?").run(refundRef, payment.id);
-                db.prepare("UPDATE bookings SET status = 'REFUNDED', updated_at = datetime('now') WHERE id = ?").run(booking_id);
-                db.prepare("UPDATE tickets SET status = 'INVALIDATED' WHERE booking_id = ?").run(booking_id);
-                db.prepare('DELETE FROM booking_seats WHERE booking_id = ?').run(booking_id);
-            })();
+            await db.transaction(async (tx) => {
+                await tx.run("UPDATE payments SET status = 'REFUNDED', refund_reference = ?, updated_at = NOW() WHERE id = ?", refundRef, payment.id);
+                await tx.run("UPDATE bookings SET status = 'REFUNDED', updated_at = NOW() WHERE id = ?", booking_id);
+                await tx.run("UPDATE tickets SET status = 'INVALIDATED' WHERE booking_id = ?", booking_id);
+                await tx.run('DELETE FROM booking_seats WHERE booking_id = ?', booking_id);
+            });
 
             logger.info(`Refund: ${refundRef} for booking ${booking_id}`);
             res.json({ message: 'Refund processed', refund_reference: refundRef });
@@ -288,9 +288,9 @@ module.exports = (db, redis, logger) => {
     });
 
     // ==================== PAYMENT GATEWAY PAGE ====================
-    router.get('/payments/gateway/:orderId', (req, res) => {
+    router.get('/payments/gateway/:orderId', async (req, res) => {
         try {
-            const payment = db.prepare('SELECT * FROM payments WHERE gateway_order_id = ?').get(req.params.orderId);
+            const payment = await db.get('SELECT * FROM payments WHERE gateway_order_id = ?', req.params.orderId);
             if (!payment) return res.status(404).send('<h1>Payment not found</h1>');
 
             // Already paid? Redirect to callback
@@ -301,11 +301,11 @@ module.exports = (db, redis, logger) => {
             }
 
             // Get booking info for display
-            const booking = db.prepare(`
+            const booking = await db.get(`
                 SELECT b.*, m.title as movie_title FROM bookings b
                 JOIN shows s ON b.show_id = s.id
                 JOIN movies m ON s.movie_id = m.id WHERE b.id = ?
-            `).get(payment.booking_id);
+            `, payment.booking_id);
 
             res.setHeader('Content-Type', 'text/html');
             res.send(renderGatewayPage({

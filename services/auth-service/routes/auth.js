@@ -1,5 +1,5 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { uuidv4 } = require('../../../shared/db');
@@ -22,7 +22,7 @@ module.exports = (db, logger) => {
                 return res.status(400).json({ error: 'Password must be at least 6 characters' });
             }
 
-            const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+            const existing = await db.get('SELECT id FROM users WHERE email = ?', email);
             if (existing) {
                 return res.status(409).json({ error: 'Email already registered' });
             }
@@ -30,10 +30,10 @@ module.exports = (db, logger) => {
             const passwordHash = await bcrypt.hash(password, 10);
             const id = uuidv4();
 
-            db.prepare('INSERT INTO users (id, email, password_hash, name, phone) VALUES (?, ?, ?, ?, ?)').run(id, email, passwordHash, name, phone || null);
+            await db.run('INSERT INTO users (id, email, password_hash, name, phone) VALUES (?, ?, ?, ?, ?)', id, email, passwordHash, name, phone || null);
 
             const user = { id, email, name, role: 'user' };
-            const tokens = generateTokens(db, user);
+            const tokens = await generateTokens(db, user);
 
             logger.info(`User signed up: ${email}`);
             res.status(201).json({ user, ...tokens });
@@ -51,7 +51,7 @@ module.exports = (db, logger) => {
                 return res.status(400).json({ error: 'Email and password are required' });
             }
 
-            const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+            const user = await db.get('SELECT * FROM users WHERE email = ?', email);
             if (!user) {
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
@@ -62,7 +62,7 @@ module.exports = (db, logger) => {
             }
 
             const userData = { id: user.id, email: user.email, name: user.name, role: user.role };
-            const tokens = generateTokens(db, userData);
+            const tokens = await generateTokens(db, userData);
 
             logger.info(`User logged in: ${email}`);
             res.json({ user: userData, ...tokens });
@@ -73,7 +73,7 @@ module.exports = (db, logger) => {
     });
 
     // ==================== REFRESH TOKEN ====================
-    router.post('/refresh', (req, res) => {
+    router.post('/refresh', async (req, res) => {
         try {
             const { refreshToken } = req.body;
             if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
@@ -86,15 +86,15 @@ module.exports = (db, logger) => {
             }
 
             const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-            const stored = db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(tokenHash);
+            const stored = await db.get('SELECT * FROM refresh_tokens WHERE token_hash = ?', tokenHash);
             if (!stored) return res.status(401).json({ error: 'Refresh token not found' });
 
-            db.prepare('DELETE FROM refresh_tokens WHERE id = ?').run(stored.id);
+            await db.run('DELETE FROM refresh_tokens WHERE id = ?', stored.id);
 
-            const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(decoded.id);
+            const user = await db.get('SELECT id, email, name, role FROM users WHERE id = ?', decoded.id);
             if (!user) return res.status(401).json({ error: 'User not found' });
 
-            const tokens = generateTokens(db, user);
+            const tokens = await generateTokens(db, user);
             res.json(tokens);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -102,7 +102,7 @@ module.exports = (db, logger) => {
     });
 
     // ==================== GOOGLE OAUTH ====================
-    router.post('/google-auth', (req, res) => {
+    router.post('/google-auth', async (req, res) => {
         try {
             const { credential } = req.body;
             if (!credential) return res.status(400).json({ error: 'Credential required' });
@@ -110,17 +110,17 @@ module.exports = (db, logger) => {
             const googleUser = jwt.decode(credential);
             if (!googleUser?.email) return res.status(400).json({ error: 'Invalid credential' });
 
-            let user = db.prepare('SELECT id, email, name, role FROM users WHERE email = ?').get(googleUser.email);
+            let user = await db.get('SELECT id, email, name, role FROM users WHERE email = ?', googleUser.email);
 
             if (!user) {
                 const id = uuidv4();
-                db.prepare('INSERT INTO users (id, email, name, oauth_provider, oauth_id) VALUES (?, ?, ?, ?, ?)').run(
+                await db.run('INSERT INTO users (id, email, name, oauth_provider, oauth_id) VALUES (?, ?, ?, ?, ?)',
                     id, googleUser.email, googleUser.name || googleUser.email.split('@')[0], 'google', googleUser.sub
                 );
                 user = { id, email: googleUser.email, name: googleUser.name || googleUser.email.split('@')[0], role: 'user' };
             }
 
-            const tokens = generateTokens(db, user);
+            const tokens = await generateTokens(db, user);
             res.json({ user, ...tokens });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -128,22 +128,22 @@ module.exports = (db, logger) => {
     });
 
     // ==================== GET ME ====================
-    router.get('/me', authMiddleware, (req, res) => {
-        const user = db.prepare('SELECT id, email, name, phone, role, created_at FROM users WHERE id = ?').get(req.user.id);
+    router.get('/me', authMiddleware, async (req, res) => {
+        const user = await db.get('SELECT id, email, name, phone, role, created_at FROM users WHERE id = ?', req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
         res.json(user);
     });
 
     // ==================== LOGOUT ====================
-    router.post('/logout', authMiddleware, (req, res) => {
-        db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(req.user.id);
+    router.post('/logout', authMiddleware, async (req, res) => {
+        await db.run('DELETE FROM refresh_tokens WHERE user_id = ?', req.user.id);
         res.json({ message: 'Logged out successfully' });
     });
 
     return router;
 };
 
-function generateTokens(db, user) {
+async function generateTokens(db, user) {
     const payload = { id: user.id, email: user.email, name: user.name, role: user.role };
     const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' });
     const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '10d' });
@@ -151,7 +151,7 @@ function generateTokens(db, user) {
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
     const expiresAt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
 
-    db.prepare('INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)').run(
+    await db.run('INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)',
         uuidv4(), user.id, tokenHash, expiresAt
     );
 

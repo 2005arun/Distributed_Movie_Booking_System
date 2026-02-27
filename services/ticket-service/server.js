@@ -13,7 +13,7 @@ const { createLogger } = require('../../shared/logger');
 const app = express();
 const PORT = process.env.PORT || 3006;
 const logger = createLogger('ticket-service');
-const db = getDB();
+let db = null;
 
 app.use(helmet());
 app.use(cors({ origin: '*', credentials: true }));
@@ -25,9 +25,9 @@ app.get('/health', (req, res) => {
 });
 
 // GET TICKET
-app.get('/tickets/:bookingId', authMiddleware, (req, res) => {
+app.get('/tickets/:bookingId', authMiddleware, async (req, res) => {
     try {
-        const ticket = db.prepare('SELECT * FROM tickets WHERE booking_id = ?').get(req.params.bookingId);
+        const ticket = await db.get('SELECT * FROM tickets WHERE booking_id = ?', req.params.bookingId);
         if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
         if (ticket.user_id !== req.user.id && req.user.role !== 'admin') {
             return res.status(403).json({ error: 'Access denied' });
@@ -69,13 +69,13 @@ app.use(errorHandler);
 // TICKET GENERATION
 async function generateTicket(db, bookingId, logger) {
     // Idempotent
-    const existing = db.prepare('SELECT * FROM tickets WHERE booking_id = ?').get(bookingId);
+    const existing = await db.get('SELECT * FROM tickets WHERE booking_id = ?', bookingId);
     if (existing) {
         existing.ticket_data = JSON.parse(existing.ticket_data || '{}');
         return existing;
     }
 
-    const booking = db.prepare(`
+    const booking = await db.get(`
     SELECT b.*, m.title as movie_title, s.start_time, s.end_time,
            sc.name as screen_name, t.name as theater_name
     FROM bookings b
@@ -84,15 +84,15 @@ async function generateTicket(db, bookingId, logger) {
     JOIN screens sc ON s.screen_id = sc.id
     JOIN theaters t ON sc.theater_id = t.id
     WHERE b.id = ?
-  `).get(bookingId);
+  `, bookingId);
 
     if (!booking) throw new Error('Booking not found');
 
-    const seats = db.prepare(`
+    const seats = await db.all(`
     SELECT se.row_label, se.seat_number, se.seat_type, bs.price
     FROM booking_seats bs JOIN seats se ON bs.seat_id = se.id
     WHERE bs.booking_id = ?
-  `).all(bookingId);
+  `, bookingId);
 
     const ticketData = {
         booking_id: booking.id,
@@ -114,7 +114,7 @@ async function generateTicket(db, bookingId, logger) {
     const qrCode = await QRCode.toDataURL(qrData, { width: 300, margin: 2 });
 
     const ticketId = uuidv4();
-    db.prepare('INSERT INTO tickets (id, booking_id, user_id, qr_code, ticket_data) VALUES (?, ?, ?, ?, ?)').run(
+    await db.run('INSERT INTO tickets (id, booking_id, user_id, qr_code, ticket_data) VALUES (?, ?, ?, ?, ?)',
         ticketId, bookingId, booking.user_id, qrCode, JSON.stringify(ticketData)
     );
 
@@ -122,8 +122,8 @@ async function generateTicket(db, bookingId, logger) {
     return { id: ticketId, booking_id: bookingId, user_id: booking.user_id, qr_code: qrCode, ticket_data: ticketData };
 }
 
-// KAFKA CONSUMER
 async function initKafka() {
+    db = await getDB();
     try {
         const kafka = createKafkaClient('ticket-service');
         await createConsumer(kafka, 'ticket-group', ['booking.confirmed'], async (topic, message) => {

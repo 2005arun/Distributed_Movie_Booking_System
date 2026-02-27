@@ -14,7 +14,7 @@ const { createLogger } = require('../../shared/logger');
 const app = express();
 const PORT = process.env.PORT || 3007;
 const logger = createLogger('notification-service');
-const db = getDB();
+let db = null;
 
 // Email providers
 let resendClient = null;
@@ -147,7 +147,7 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'notification-service', timestamp: new Date().toISOString() });
 });
 
-app.get('/notifications', (req, res) => {
+app.get('/notifications', async (req, res) => {
     try {
         const { user_id, limit = 20 } = req.query;
         let sql = 'SELECT * FROM notifications';
@@ -155,7 +155,7 @@ app.get('/notifications', (req, res) => {
         if (user_id) { sql += ' WHERE user_id = ?'; params.push(user_id); }
         sql += ' ORDER BY created_at DESC LIMIT ?';
         params.push(parseInt(limit));
-        res.json(db.prepare(sql).all(...params));
+        res.json(await db.all(sql, ...params));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -176,12 +176,13 @@ app.post('/notifications/booking-confirmed', authMiddleware, async (req, res) =>
 });
 
 // Get email notification status for a booking
-app.get('/notifications/booking/:bookingId', (req, res) => {
+app.get('/notifications/booking/:bookingId', async (req, res) => {
     try {
         const { bookingId } = req.params;
-        const notification = db.prepare(
-            "SELECT * FROM notifications WHERE type = 'BOOKING_CONFIRMED' AND metadata LIKE ? ORDER BY created_at DESC LIMIT 1"
-        ).get(`%"booking_id":"${bookingId}"%`);
+        const notification = await db.get(
+            "SELECT * FROM notifications WHERE type = 'BOOKING_CONFIRMED' AND metadata LIKE ? ORDER BY created_at DESC LIMIT 1",
+            `%"booking_id":"${bookingId}"%`
+        );
 
         if (!notification) {
             return res.json({ email_sent: false, message: 'No notification found for this booking' });
@@ -221,7 +222,7 @@ app.use(errorHandler);
 async function handleBookingConfirmed(message) {
     const { booking_id, user_id } = message;
 
-    const booking = db.prepare(`
+    const booking = await db.get(`
     SELECT b.*, m.title as movie_title, s.start_time, sc.name as screen_name, t.name as theater_name
     FROM bookings b
     JOIN shows s ON b.show_id = s.id
@@ -229,28 +230,28 @@ async function handleBookingConfirmed(message) {
     JOIN screens sc ON s.screen_id = sc.id
     JOIN theaters t ON sc.theater_id = t.id
     WHERE b.id = ?
-  `).get(booking_id);
+  `, booking_id);
 
     if (!booking) return { email_sent: false };
 
-    const seats = db.prepare(`
+    const seats = await db.all(`
     SELECT se.row_label, se.seat_number FROM booking_seats bs
     JOIN seats se ON bs.seat_id = se.id WHERE bs.booking_id = ?
-  `).all(booking_id);
+  `, booking_id);
 
     const seatStr = seats.map(s => `${s.row_label}${s.seat_number}`).join(', ');
     const showTime = new Date(booking.start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 
     // Look up user email
-    const user = db.prepare('SELECT email, name FROM users WHERE id = ?').get(user_id);
+    const user = await db.get('SELECT email, name FROM users WHERE id = ?', user_id);
     const userEmail = user?.email || null;
 
     // Save notification to DB with PENDING status (will update after email attempt)
     const notifId = uuidv4();
     const notifSubject = `Booking Confirmed: ${booking.movie_title}`;
     const notifMessage = `Your booking for ${booking.movie_title} is confirmed.\nTheater: ${booking.theater_name}\nScreen: ${booking.screen_name}\nTime: ${showTime}\nSeats: ${seatStr}\nAmount: \u20B9${booking.total_amount}`;
-    db.prepare(`INSERT OR IGNORE INTO notifications (id, user_id, type, channel, subject, message, metadata, status, sent_at)
-    VALUES (?, ?, 'BOOKING_CONFIRMED', 'email', ?, ?, ?, 'PENDING', datetime('now'))`).run(
+    await db.run(`INSERT INTO notifications (id, user_id, type, channel, subject, message, metadata, status, sent_at)
+    VALUES (?, ?, 'BOOKING_CONFIRMED', 'email', ?, ?, ?, 'PENDING', NOW()) ON CONFLICT (id) DO NOTHING`,
         notifId, user_id,
         notifSubject, notifMessage,
         JSON.stringify({ booking_id, movie: booking.movie_title, seats: seatStr, email_sent_to: userEmail })
@@ -347,7 +348,7 @@ async function handleBookingConfirmed(message) {
 
     // Update notification status based on actual email result
     const finalStatus = emailResult.email_sent ? 'SENT' : 'FAILED';
-    db.prepare('UPDATE notifications SET status = ?, metadata = ? WHERE id = ?').run(
+    await db.run('UPDATE notifications SET status = ?, metadata = ? WHERE id = ?',
         finalStatus,
         JSON.stringify({ booking_id, movie: booking.movie_title, seats: seatStr, email_sent_to: userEmail, transport: emailResult.transport || null }),
         notifId
@@ -360,8 +361,8 @@ async function handleBookingConfirmed(message) {
 async function handleBookingCancelled(message) {
     const { booking_id, user_id } = message;
 
-    db.prepare(`INSERT INTO notifications (id, user_id, type, channel, subject, message, metadata, status, sent_at)
-    VALUES (?, ?, 'BOOKING_CANCELLED', 'email', 'Booking Cancelled', ?, ?, 'SENT', datetime('now'))`).run(
+    await db.run(`INSERT INTO notifications (id, user_id, type, channel, subject, message, metadata, status, sent_at)
+    VALUES (?, ?, 'BOOKING_CANCELLED', 'email', 'Booking Cancelled', ?, ?, 'SENT', NOW())`,
         uuidv4(), user_id,
         `Your booking ${booking_id} has been cancelled.`,
         JSON.stringify({ booking_id })
@@ -408,6 +409,9 @@ async function initRabbitMQ() {
 // CRITICAL: initEmail() MUST complete BEFORE initRabbitMQ() starts consuming,
 // otherwise messages arrive before email provider is ready (brevoApiKey is null).
 async function startService() {
+    // Step 0: Initialize database
+    db = await getDB();
+
     // Step 1: Initialize email provider FIRST
     await initEmail();
     logger.info(`📧 Email provider ready: ${emailProvider} (brevoApiKey=${!!brevoApiKey}, resendClient=${!!resendClient}, transporter=${!!emailTransporter})`);

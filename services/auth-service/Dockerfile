@@ -1,12 +1,6 @@
 FROM node:20-alpine
 
-# Install build tools for better-sqlite3 native compilation
-RUN apk add --no-cache python3 make g++
-
 WORKDIR /app
-
-# Create data directory for SQLite
-RUN mkdir -p /app/data
 
 # Copy and install shared module
 COPY shared/ ./shared/

@@ -294,12 +294,12 @@ function MoviesPage() {
             console.error('Failed to load movies:', err)
             // Demo data
             setMovies([
-                { id: 'd1000000-0000-0000-0000-000000000001', title: 'Inception', genre: 'Sci-Fi', language: 'English', duration_minutes: 148, rating: 8.8 },
-                { id: 'd1000000-0000-0000-0000-000000000002', title: 'The Dark Knight', genre: 'Action', language: 'English', duration_minutes: 152, rating: 9.0 },
-                { id: 'd1000000-0000-0000-0000-000000000003', title: 'Interstellar', genre: 'Sci-Fi', language: 'English', duration_minutes: 169, rating: 8.6 },
-                { id: 'd1000000-0000-0000-0000-000000000004', title: 'RRR', genre: 'Action', language: 'Telugu', duration_minutes: 187, rating: 8.0 },
-                { id: 'd1000000-0000-0000-0000-000000000005', title: 'Jawan', genre: 'Action', language: 'Hindi', duration_minutes: 169, rating: 7.5 },
-                { id: 'd1000000-0000-0000-0000-000000000006', title: 'Oppenheimer', genre: 'Drama', language: 'English', duration_minutes: 180, rating: 8.5 },
+                { id: 'd1000000-0000-0000-0000-000000000001', title: 'Inception', genre: 'Sci-Fi', language: 'English', duration_minutes: 148, rating: 8.8, poster_url: 'https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg' },
+                { id: 'd1000000-0000-0000-0000-000000000002', title: 'The Dark Knight', genre: 'Action', language: 'English', duration_minutes: 152, rating: 9.0, poster_url: 'https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911BTUgMe1nVke0.jpg' },
+                { id: 'd1000000-0000-0000-0000-000000000003', title: 'Interstellar', genre: 'Sci-Fi', language: 'English', duration_minutes: 169, rating: 8.6, poster_url: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
+                { id: 'd1000000-0000-0000-0000-000000000004', title: 'RRR', genre: 'Action', language: 'Telugu', duration_minutes: 187, rating: 8.0, poster_url: 'https://image.tmdb.org/t/p/w500/nEufeZYpR9hvEod9GkVmMCgYhYH.jpg' },
+                { id: 'd1000000-0000-0000-0000-000000000005', title: 'Jawan', genre: 'Action', language: 'Hindi', duration_minutes: 169, rating: 7.5, poster_url: 'https://image.tmdb.org/t/p/w500/jFeBzUsCRdsaRfu6pBDDCVNmOZp.jpg' },
+                { id: 'd1000000-0000-0000-0000-000000000006', title: 'Oppenheimer', genre: 'Drama', language: 'English', duration_minutes: 180, rating: 8.5, poster_url: 'https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg' },
             ])
         } finally {
             setLoading(false)
@@ -319,7 +319,7 @@ function MoviesPage() {
         }
     }
 
-    const movieEmojis = { 'Sci-Fi': '🚀', 'Action': '💥', 'Drama': '🎭', 'Comedy': '😄', 'Horror': '👻', 'Romance': '❤️' }
+    const movieEmojis = { 'Sci-Fi': '🚀', 'Action': '💥', 'Drama': '🎭', 'Comedy': '😄', 'Horror': '👻', 'Romance': '❤️', 'Thriller': '🔪' }
 
     const filteredMovies = filters.search
         ? movies.filter(m => m.title.toLowerCase().includes(filters.search.toLowerCase()))
@@ -345,7 +345,7 @@ function MoviesPage() {
                 </select>
                 <select className="filter-select" value={filters.genre} onChange={e => setFilters({ ...filters, genre: e.target.value })}>
                     <option value="">🎭 All Genres</option>
-                    {['Action', 'Sci-Fi', 'Drama', 'Comedy', 'Horror', 'Romance'].map(g =>
+                    {['Action', 'Sci-Fi', 'Drama', 'Comedy', 'Horror', 'Romance', 'Thriller'].map(g =>
                         <option key={g} value={g}>{g}</option>
                     )}
                 </select>
@@ -360,7 +360,11 @@ function MoviesPage() {
                     {filteredMovies.map(movie => (
                         <div key={movie.id} className="card movie-card" onClick={() => navigate(`/movie/${movie.id}`)}>
                             <div className="movie-poster">
-                                {movieEmojis[movie.genre] || '🎬'}
+                                <span className="poster-emoji">{movieEmojis[movie.genre] || '🎬'}</span>
+                                {movie.poster_url && (
+                                    <img src={movie.poster_url} alt="" loading="lazy"
+                                         onError={e => { e.target.style.display = 'none' }} />
+                                )}
                                 <div className="movie-rating">⭐ {movie.rating}</div>
                             </div>
                             <div className="card-body movie-info">
@@ -415,8 +419,12 @@ function MovieDetailPage() {
             <Link to="/" className="back-link">← Back to Movies</Link>
 
             <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                <div style={{ width: '200px', height: '300px', borderRadius: '16px', background: 'linear-gradient(135deg, var(--bg-card), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '4rem', flexShrink: 0 }}>
-                    🎬
+                <div className="detail-poster">
+                    <span style={{ fontSize: '4rem' }}>🎬</span>
+                    {movie.poster_url && (
+                        <img src={movie.poster_url} alt=""
+                             onError={e => { e.target.style.display = 'none' }} />
+                    )}
                 </div>
                 <div style={{ flex: 1 }}>
                     <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>{movie.title}</h1>
