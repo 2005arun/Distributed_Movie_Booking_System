@@ -2,8 +2,6 @@
 
 A production-ready, scalable movie ticket booking platform built using **microservices architecture** with real-time seat locking, async event processing, and email notifications.
 
-![Architecture](./docs/architecture.png)
-
 ---
 
 ## 🏗️ System Architecture
@@ -380,43 +378,10 @@ docker compose up -d --scale auth-service=3
 3. Commit changes (`git commit -m 'Add amazing feature'`)
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
 ---
 
 ## 👤 Author
-
-**Arun**
-- GitHub: [@2005arun](https://github.com/2005arun)
 - Docker Hub: [arun498](https://hub.docker.com/u/arun498)
-
----
-
-## ⭐ Show Your Support
-
-Give a ⭐ if this project helped you!
-
----
-
-## 📸 Screenshots
-
-### Home Page
-![Home](./docs/screenshots/home.png)
-
-### Seat Selection
-![Seats](./docs/screenshots/seats.png)
-
-### Booking Confirmation
-![Booking](./docs/screenshots/booking.png)
-
-### Architecture Diagram
-![Architecture](./docs/screenshots/architecture.png)
-
 ---
 
 **#Microservices #NodeJS #React #PostgreSQL #RabbitMQ #Docker #SystemDesign #DistributedSystems**
