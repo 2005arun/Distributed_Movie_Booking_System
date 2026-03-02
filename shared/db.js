@@ -1,16 +1,32 @@
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
-const DB_CONFIG = {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432'),
-    database: process.env.DB_NAME || 'movieticket',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-};
+/**
+ * Database Configuration
+ * Supports two modes:
+ * 1. DATABASE_URL (for cloud providers like Neon, Supabase, etc.)
+ * 2. Individual DB_* variables (for local Docker PostgreSQL)
+ */
+const DB_CONFIG = process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false, // Required for Neon and most cloud providers
+        },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+    }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT || '5432'),
+        database: process.env.DB_NAME || 'movieticket',
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD || 'postgres',
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    };
 
 let _pool = null;
 let _dbWrapper = null;
