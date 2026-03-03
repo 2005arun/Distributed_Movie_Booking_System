@@ -5,7 +5,7 @@ const morgan = require('morgan');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const { getDB, uuidv4 } = require('../../shared/db');
-const { createKafkaClient, createConsumer } = require('../../shared/kafka');
+const { connectRabbitMQ, consumeFromQueue } = require('../../shared/rabbitmq');
 const { authMiddleware } = require('../../shared/auth-middleware');
 const { errorHandler } = require('../../shared/error-handler');
 const { createLogger } = require('../../shared/logger');
@@ -122,26 +122,26 @@ async function generateTicket(db, bookingId, logger) {
     return { id: ticketId, booking_id: bookingId, user_id: booking.user_id, qr_code: qrCode, ticket_data: ticketData };
 }
 
-async function initKafka() {
+async function initRabbitMQ() {
     db = await getDB();
     try {
-        const kafka = createKafkaClient('ticket-service');
-        await createConsumer(kafka, 'ticket-group', ['booking.confirmed'], async (topic, message) => {
-            if (topic === 'booking.confirmed') {
-                logger.info(`Generating ticket for booking ${message.booking_id}`);
-                try {
-                    await generateTicket(db, message.booking_id, logger);
-                } catch (err) {
-                    logger.error(`Ticket generation failed: ${err.message}`);
-                }
+        await connectRabbitMQ({ logger });
+        
+        // Listen for payment.success messages
+        await consumeFromQueue('payment.success', async (message) => {
+            logger.info(`Generating ticket for booking ${message.booking_id}`);
+            try {
+                await generateTicket(db, message.booking_id, logger);
+            } catch (err) {
+                logger.error(`Ticket generation failed: ${err.message}`);
             }
         });
     } catch (err) {
-        logger.warn('Kafka unavailable:', err.message);
+        logger.warn('RabbitMQ unavailable:', err.message);
     }
 }
 
-initKafka().then(() => {
+initRabbitMQ().then(() => {
     app.listen(PORT, () => {
         logger.info(`🎫 Ticket Service running on http://localhost:${PORT}`);
     });
