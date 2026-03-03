@@ -977,60 +977,132 @@ function TicketPage() {
     if (loading) return <div className="loading"><div className="spinner"></div></div>
     if (!booking) return <div className="container"><div className="alert alert-error">Booking not found</div></div>
 
+    const formatDate = (dateStr) => {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+
+    const formatTime = (dateStr) => {
+        const date = new Date(dateStr);
+        return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    };
+
     return (
-        <div className="container fade-in" style={{ maxWidth: '600px', margin: '0 auto', padding: '2rem' }}>
-            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🎉</div>
-                <h1 style={{ color: 'var(--success)' }}>Booking Confirmed!</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Your ticket is ready</p>
+        <div className="container fade-in" style={{ maxWidth: '650px', margin: '0 auto', padding: '2rem 1rem' }}>
+            {/* Success Header */}
+            <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+                <div style={{ 
+                    fontSize: '4rem', 
+                    marginBottom: '0.5rem',
+                    animation: 'bounce 0.6s ease-in-out'
+                }}>🎉</div>
+                <h1 style={{ 
+                    color: 'var(--success)', 
+                    marginBottom: '0.5rem',
+                    fontSize: '2rem',
+                    fontWeight: '700'
+                }}>Booking Confirmed!</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>Your ticket is ready</p>
             </div>
 
-            <div className="ticket-card slide-up">
-                <div className="ticket-header">
-                    <h2>🎬 {booking.movie_title}</h2>
+            {/* Ticket Card */}
+            <div className="ticket-card-enhanced slide-up">
+                {/* Movie Header */}
+                <div className="ticket-header-enhanced">
+                    <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>🎬</div>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: '700', margin: 0 }}>{booking.movie_title}</h2>
                 </div>
 
-                <div className="ticket-body">
+                {/* Ticket Body */}
+                <div className="ticket-body-enhanced">
+                    {/* QR Code Section */}
                     {ticket?.qr_code && (
-                        <div className="ticket-qr">
-                            <img src={ticket.qr_code} alt="Ticket QR Code" />
+                        <div className="ticket-qr-enhanced">
+                            <div className="qr-label">Scan at Theater</div>
+                            <div className="qr-frame">
+                                <img src={ticket.qr_code} alt="Ticket QR Code" />
+                            </div>
                         </div>
                     )}
 
-                    <div className="ticket-detail">
-                        <span className="label">Theater</span>
-                        <span className="value">{booking.theater_name}</span>
+                    {/* Ticket Details Grid */}
+                    <div className="ticket-details-grid">
+                        {/* Theater */}
+                        <div className="ticket-info-item">
+                            <div className="info-label">Theater</div>
+                            <div className="info-value">{booking.theater_name}</div>
+                        </div>
+
+                        {/* Screen */}
+                        <div className="ticket-info-item">
+                            <div className="info-label">Screen</div>
+                            <div className="info-value">{booking.screen_name}</div>
+                        </div>
+
+                        {/* Date */}
+                        <div className="ticket-info-item">
+                            <div className="info-label">📅 Date & Time</div>
+                            <div className="info-value">
+                                {formatDate(booking.start_time)}, {formatTime(booking.start_time)}
+                            </div>
+                        </div>
+
+                        {/* Seats */}
+                        <div className="ticket-info-item" style={{ gridColumn: '1 / -1' }}>
+                            <div className="info-label">🎫 Seats</div>
+                            <div className="seats-display">
+                                {booking.seats?.map((s, i) => (
+                                    <span key={i} className="seat-badge">
+                                        {s.row_label}{s.seat_number}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Amount */}
+                        <div className="ticket-info-item">
+                            <div className="info-label">💰 Amount Paid</div>
+                            <div className="info-value" style={{ color: 'var(--success)', fontSize: '1.3rem', fontWeight: '700' }}>
+                                ₹{booking.total_amount}
+                            </div>
+                        </div>
+
+                        {/* Booking ID */}
+                        <div className="ticket-info-item">
+                            <div className="info-label">Booking ID</div>
+                            <div className="info-value" style={{ fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                                {bookingId.slice(0, 8).toUpperCase()}
+                            </div>
+                        </div>
+
+                        {/* Status */}
+                        <div className="ticket-info-item" style={{ gridColumn: '1 / -1', textAlign: 'center' }}>
+                            <span className={`status-badge-large status-${booking.status}`}>
+                                ✓ {booking.status}
+                            </span>
+                        </div>
                     </div>
-                    <div className="ticket-detail">
-                        <span className="label">Screen</span>
-                        <span className="value">{booking.screen_name}</span>
-                    </div>
-                    <div className="ticket-detail">
-                        <span className="label">Date & Time</span>
-                        <span className="value">{new Date(booking.start_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                    </div>
-                    <div className="ticket-detail">
-                        <span className="label">Seats</span>
-                        <span className="value">{booking.seats?.map(s => `${s.row_label}${s.seat_number}`).join(', ')}</span>
-                    </div>
-                    <div className="ticket-detail">
-                        <span className="label">Amount Paid</span>
-                        <span className="value" style={{ color: 'var(--success)' }}>₹{booking.total_amount}</span>
-                    </div>
-                    <div className="ticket-detail">
-                        <span className="label">Booking ID</span>
-                        <span className="value" style={{ fontSize: '0.8rem' }}>{bookingId.slice(0, 8).toUpperCase()}</span>
-                    </div>
-                    <div className="ticket-detail">
-                        <span className="label">Status</span>
-                        <span className={`status-badge status-${booking.status}`}>{booking.status}</span>
-                    </div>
+                </div>
+
+                {/* Perforation Line */}
+                <div className="ticket-perforation"></div>
+
+                {/* Ticket Footer */}
+                <div className="ticket-footer-enhanced">
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Please arrive 15 minutes before showtime. Carry a valid ID.
+                    </p>
                 </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', justifyContent: 'center' }}>
-                <Link to="/bookings" className="btn btn-secondary">My Bookings</Link>
-                <Link to="/" className="btn btn-primary">Browse Movies</Link>
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '2.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <Link to="/bookings" className="btn btn-secondary" style={{ minWidth: '150px' }}>
+                    📋 My Bookings
+                </Link>
+                <Link to="/" className="btn btn-primary" style={{ minWidth: '150px' }}>
+                    🎬 Browse Movies
+                </Link>
             </div>
         </div>
     )
