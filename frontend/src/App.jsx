@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useParams, Navigate } from 'react-router-dom'
-import api from './api.js'
+import api, { getApiBaseUrl } from './api.js'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
@@ -674,7 +674,8 @@ function PaymentPage() {
             // Step 2: Redirect to payment gateway page
             const orderId = payResult.gateway_config.order_id
             const callbackUrl = encodeURIComponent(`${window.location.origin}/payment-callback/${bookingId}`)
-            window.location.href = `/api/payments/gateway/${orderId}?callback=${callbackUrl}`
+            const apiBase = getApiBaseUrl() || window.location.origin
+            window.location.href = `${apiBase}/api/payments/gateway/${orderId}?callback=${callbackUrl}`
         } catch (err) {
             setError(err.message)
             setProcessing(false)

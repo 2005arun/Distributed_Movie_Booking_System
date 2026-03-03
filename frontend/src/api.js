@@ -1,5 +1,14 @@
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+export const getApiBaseUrl = () => {
+    // For absolute URLs (Railway), remove /api suffix
+    if (API_BASE.startsWith('http')) {
+        return API_BASE.replace(/\/api$/, '');
+    }
+    // For relative URLs (local dev), return empty string to use current origin
+    return '';
+};
+
 class ApiService {
     constructor() {
         this.token = localStorage.getItem('accessToken');
