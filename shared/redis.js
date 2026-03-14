@@ -1,14 +1,15 @@
-// Redis client with in-memory fallback for gradual migration
-// Uses ioredis when REDIS_URL is available, otherwise falls back to in-memory cache
+// Redis client with automatic in-memory fallback
+// Uses ioredis when REDIS_URL is available AND reachable,
+// otherwise seamlessly falls back to in-memory cache.
+// Returns a proxy so all service references auto-switch on failure.
 
 const Redis = require('ioredis');
 
-// ==================== IN-MEMORY FALLBACK ====================
+// ==================== IN-MEMORY STORE ====================
 class MemoryStore {
     constructor() {
         this.store = new Map();
         this.expiry = new Map();
-        console.log('⚠️  Using in-memory cache (Redis not available — fallback mode)');
     }
 
     async get(key) {
@@ -79,76 +80,115 @@ class MemoryStore {
     }
 }
 
-// ==================== REDIS CLIENT FACTORY ====================
-let _instance = null;
-let _fallbackStore = null;
+// ==================== RESILIENT PROXY ====================
+// Wraps Redis client + MemoryStore fallback.
+// Every operation tries Redis first; if Redis is not ready or throws,
+// it transparently falls back to the in-memory store.
+// Services hold THIS proxy — so no stale references.
 
-function _getMemoryFallback() {
-    if (!_fallbackStore) _fallbackStore = new MemoryStore();
-    return _fallbackStore;
+function createResilientProxy(redisClient, memoryStore) {
+    const METHODS = ['get', 'set', 'setex', 'del', 'keys', 'exists'];
+    const proxy = {};
+
+    for (const method of METHODS) {
+        proxy[method] = async (...args) => {
+            // Only use Redis if connected & ready
+            if (redisClient && redisClient.status === 'ready') {
+                try {
+                    return await redisClient[method](...args);
+                } catch (err) {
+                    // Redis command failed — use fallback silently
+                    return await memoryStore[method](...args);
+                }
+            }
+            // Redis not ready — use in-memory
+            return await memoryStore[method](...args);
+        };
+    }
+
+    proxy.quit = async () => {
+        try { if (redisClient) await redisClient.quit(); } catch (e) { /* ignore */ }
+        await memoryStore.quit();
+    };
+
+    // Expose status for debugging
+    proxy.getStatus = () => {
+        if (!redisClient) return 'memory-only';
+        return redisClient.status === 'ready' ? 'redis' : 'memory-fallback';
+    };
+
+    return proxy;
 }
+
+// ==================== FACTORY ====================
+let _instance = null;
 
 function createRedis() {
     if (_instance) return _instance;
 
+    const memoryStore = new MemoryStore();
     const redisUrl = process.env.REDIS_URL;
 
-    if (redisUrl) {
-        try {
-            const client = new Redis(redisUrl, {
-                maxRetriesPerRequest: 3,
-                retryStrategy(times) {
-                    if (times > 3) {
-                        console.error('❌ Redis: Max retries reached — switching to in-memory fallback');
-                        // Swap singleton to memory store so future calls don't use broken client
-                        _instance = _getMemoryFallback();
-                        return null; // stop retrying
-                    }
-                    const delay = Math.min(times * 500, 2000);
-                    console.log(`🔄 Redis: Retry #${times} in ${delay}ms...`);
-                    return delay;
-                },
-                connectTimeout: 10000,
-                lazyConnect: false,
-            });
-
-            client.on('connect', () => {
-                console.log('✅ Redis connected successfully');
-            });
-
-            client.on('ready', async () => {
-                console.log('✅ Redis ready to accept commands');
-                try {
-                    const pong = await client.ping();
-                    console.log(`🏓 Redis PING → ${pong}`);
-                } catch (e) {
-                    console.error('❌ Redis PING failed:', e.message);
-                }
-            });
-
-            client.on('error', (err) => {
-                console.error('❌ Redis error:', err.message);
-            });
-
-            client.on('close', () => {
-                console.warn('⚠️  Redis connection closed');
-            });
-
-            client.on('reconnecting', (delay) => {
-                console.log(`🔄 Redis reconnecting in ${delay}ms...`);
-            });
-
-            _instance = client;
-            return client;
-        } catch (err) {
-            console.error(`❌ Redis initialization failed: ${err.message}`);
-            console.log('⬇️  Falling back to in-memory cache');
-            _instance = _getMemoryFallback();
-            return _instance;
-        }
-    } else {
+    if (!redisUrl) {
         console.log('ℹ️  No REDIS_URL set — using in-memory cache');
-        _instance = _getMemoryFallback();
+        _instance = createResilientProxy(null, memoryStore);
+        return _instance;
+    }
+
+    // Try to create a real Redis client
+    const isTLS = redisUrl.startsWith('rediss://');
+    console.log(`🔗 Redis: Connecting to ${isTLS ? 'TLS' : 'plain'} Redis...`);
+
+    try {
+        const client = new Redis(redisUrl, {
+            maxRetriesPerRequest: 1,       // fail fast per-request
+            enableOfflineQueue: false,     // don't queue commands when disconnected
+            retryStrategy(times) {
+                if (times > 3) {
+                    console.log('⚠️  Redis: Connection failed after 3 retries — using in-memory fallback');
+                    return null; // stop reconnecting
+                }
+                const delay = Math.min(times * 1000, 3000);
+                console.log(`🔄 Redis: Attempt ${times}/3 in ${delay}ms...`);
+                return delay;
+            },
+            connectTimeout: 10000,         // 10s timeout for cloud Redis
+            lazyConnect: false,
+            tls: isTLS ? { rejectUnauthorized: false } : undefined,
+        });
+
+        client.on('connect', () => {
+            console.log('✅ Redis connected successfully');
+        });
+
+        client.on('ready', async () => {
+            console.log('✅ Redis ready — using Redis for caching');
+            try {
+                const pong = await client.ping();
+                console.log(`🏓 Redis PING → ${pong}`);
+            } catch (e) {
+                console.error('❌ Redis PING failed:', e.message);
+            }
+        });
+
+        client.on('error', (err) => {
+            // Only log once per unique error to avoid spam
+            if (!client._lastError || client._lastError !== err.message) {
+                console.error('❌ Redis error:', err.message);
+                client._lastError = err.message;
+            }
+        });
+
+        client.on('close', () => {
+            console.warn('⚠️  Redis disconnected — falling back to in-memory cache');
+        });
+
+        // Return the proxy — it auto-delegates to memory when Redis is down
+        _instance = createResilientProxy(client, memoryStore);
+        return _instance;
+    } catch (err) {
+        console.error(`❌ Redis init failed: ${err.message} — using in-memory cache`);
+        _instance = createResilientProxy(null, memoryStore);
         return _instance;
     }
 }

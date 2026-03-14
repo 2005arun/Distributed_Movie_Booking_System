@@ -13,7 +13,7 @@
 services:
   # ==================== Microservices ====================
   auth-service:
-    image: arun498/auth-service:3.9
+    image: arun498/auth-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.auth
@@ -32,7 +32,7 @@ services:
       - mtbs-network
 
   movie-service:
-    image: arun498/movie-service:3.9
+    image: arun498/movie-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.movie
@@ -52,7 +52,7 @@ services:
       - mtbs-network
 
   show-service:
-    image: arun498/show-service:3.9
+    image: arun498/show-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.show
@@ -72,7 +72,7 @@ services:
       - mtbs-network
 
   booking-service:
-    image: arun498/booking-service:3.9
+    image: arun498/booking-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.booking
@@ -92,7 +92,7 @@ services:
       - mtbs-network
 
   payment-service:
-    image: arun498/payment-service:3.9
+    image: arun498/payment-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.payment
@@ -115,7 +115,7 @@ services:
       - mtbs-network
 
   ticket-service:
-    image: arun498/ticket-service:3.9
+    image: arun498/ticket-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.ticket
@@ -134,7 +134,7 @@ services:
       - mtbs-network
 
   notification-service:
-    image: arun498/notification-service:3.9
+    image: arun498/notification-service:4.0
     build:
       context: .
       dockerfile: Dockerfile.notification
@@ -162,7 +162,7 @@ services:
 
   # ==================== API Gateway ====================
   api-gateway:
-    image: arun498/api-gateway:3.9
+    image: arun498/api-gateway:4.0
     build:
       context: .
       dockerfile: Dockerfile.gateway
@@ -214,7 +214,7 @@ services:
 
   # ==================== Frontend ====================
   frontend:
-    image: arun498/frontend:3.9
+    image: arun498/frontend:4.0
     build:
       context: .
       dockerfile: Dockerfile.frontend
