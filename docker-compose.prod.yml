@@ -35,6 +35,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3002
+      - REDIS_URL=${REDIS_URL:-}
     volumes:
       - sqlite-data:/app/data
     restart: unless-stopped
@@ -49,6 +50,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3003
+      - REDIS_URL=${REDIS_URL:-}
     volumes:
       - sqlite-data:/app/data
     restart: unless-stopped
@@ -63,6 +65,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3004
+      - REDIS_URL=${REDIS_URL:-}
     volumes:
       - sqlite-data:/app/data
     restart: unless-stopped
@@ -77,6 +80,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3005
+      - REDIS_URL=${REDIS_URL:-}
       - TICKET_SERVICE_URL=http://ticket-service:3006
       - NOTIFICATION_SERVICE_URL=http://notification-service:3007
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672

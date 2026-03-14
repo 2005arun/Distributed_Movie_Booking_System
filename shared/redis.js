@@ -1,11 +1,14 @@
-// In-memory Redis replacement — no external Redis required
-// Implements the same API used across services
+// Redis client with in-memory fallback for gradual migration
+// Uses ioredis when REDIS_URL is available, otherwise falls back to in-memory cache
 
+const Redis = require('ioredis');
+
+// ==================== IN-MEMORY FALLBACK ====================
 class MemoryStore {
     constructor() {
         this.store = new Map();
         this.expiry = new Map();
-        console.log('✅ In-memory cache initialized (Redis replacement)');
+        console.log('⚠️  Using in-memory cache (Redis not available — fallback mode)');
     }
 
     async get(key) {
@@ -14,7 +17,6 @@ class MemoryStore {
     }
 
     async set(key, value, ...args) {
-        // Handle SET key value NX EX ttl
         let nx = false;
         let ttl = null;
         for (let i = 0; i < args.length; i++) {
@@ -77,11 +79,64 @@ class MemoryStore {
     }
 }
 
-// Singleton
+// ==================== REDIS CLIENT FACTORY ====================
 let _instance = null;
+
 function createRedis() {
-    if (!_instance) _instance = new MemoryStore();
-    return _instance;
+    if (_instance) return _instance;
+
+    const redisUrl = process.env.REDIS_URL;
+
+    if (redisUrl) {
+        try {
+            const client = new Redis(redisUrl, {
+                maxRetriesPerRequest: 3,
+                retryStrategy(times) {
+                    if (times > 5) {
+                        console.error('❌ Redis: Max retries reached, giving up reconnect');
+                        return null; // stop retrying
+                    }
+                    const delay = Math.min(times * 200, 2000);
+                    console.log(`🔄 Redis: Retry #${times} in ${delay}ms...`);
+                    return delay;
+                },
+                connectTimeout: 10000,
+                lazyConnect: false,
+            });
+
+            client.on('connect', () => {
+                console.log('✅ Redis connected successfully');
+            });
+
+            client.on('ready', () => {
+                console.log('✅ Redis ready to accept commands');
+            });
+
+            client.on('error', (err) => {
+                console.error('❌ Redis error:', err.message);
+            });
+
+            client.on('close', () => {
+                console.warn('⚠️  Redis connection closed');
+            });
+
+            client.on('reconnecting', (delay) => {
+                console.log(`🔄 Redis reconnecting in ${delay}ms...`);
+            });
+
+            _instance = client;
+            return client;
+        } catch (err) {
+            console.error(`❌ Redis initialization failed: ${err.message}`);
+            console.log('⬇️  Falling back to in-memory cache');
+            _instance = new MemoryStore();
+            return _instance;
+        }
+    } else {
+        console.log('ℹ️  No REDIS_URL set — using in-memory cache');
+        _instance = new MemoryStore();
+        return _instance;
+    }
 }
 
 module.exports = { createRedis };

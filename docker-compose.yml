@@ -1,7 +1,7 @@
 # ====================================================
 # CineBook - Movie Ticket Booking System
 # Docker Compose (PostgreSQL + Redis + RabbitMQ)
-# 
+#
 # Run:  docker-compose up --build
 # Open: http://localhost:5173
 # Login: admin@movieticket.com / admin123
@@ -24,7 +24,7 @@ services:
     networks:
       - mtbs-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d movieticket"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d movieticket" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -69,8 +69,11 @@ services:
       - DB_NAME=movieticket
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -92,8 +95,11 @@ services:
       - DB_NAME=movieticket
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -115,8 +121,11 @@ services:
       - DB_NAME=movieticket
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -138,6 +147,7 @@ services:
       - DB_NAME=movieticket
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379
       - TICKET_SERVICE_URL=http://ticket-service:3006
       - NOTIFICATION_SERVICE_URL=http://notification-service:3007
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
@@ -237,6 +247,23 @@ services:
     networks:
       - mtbs-network
 
+  # ==================== Cache ====================
+  redis:
+    image: redis:7-alpine
+    container_name: mtbs-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - mtbs-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # ==================== Message Queue ====================
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -275,6 +302,8 @@ services:
 
 volumes:
   postgres-data:
+    driver: local
+  redis-data:
     driver: local
   rabbitmq-data:
     driver: local

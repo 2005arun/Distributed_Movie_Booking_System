@@ -10,6 +10,7 @@
 # Required .env variables:
 #   DATABASE_URL=postgresql://user:pass@ep-xyz.neon.tech/dbname?sslmode=require
 #   RABBITMQ_URL=amqps://user:pass@host.cloudamqp.com/vhost
+#   REDIS_URL=redis://default:password@your-redis-host:6379
 # ====================================================
 
 services:
@@ -44,6 +45,7 @@ services:
       - PORT=3002
       - DATABASE_URL=${DATABASE_URL}
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
     networks:
       - mtbs-network
@@ -61,6 +63,7 @@ services:
       - PORT=3003
       - DATABASE_URL=${DATABASE_URL}
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
     networks:
       - mtbs-network
@@ -78,6 +81,7 @@ services:
       - PORT=3004
       - DATABASE_URL=${DATABASE_URL}
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
     networks:
       - mtbs-network
@@ -95,6 +99,7 @@ services:
       - PORT=3005
       - DATABASE_URL=${DATABASE_URL}
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - REDIS_URL=${REDIS_URL:-}
       - TICKET_SERVICE_URL=http://ticket-service:3006
       - NOTIFICATION_SERVICE_URL=http://notification-service:3007
     restart: unless-stopped

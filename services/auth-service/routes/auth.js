@@ -53,12 +53,12 @@ module.exports = (db, logger) => {
 
             const user = await db.get('SELECT * FROM users WHERE email = ?', email);
             if (!user) {
-                return res.status(401).json({ error: 'Invalid credentials' });
+                return res.status(401).json({ error: 'The User Email is not registered' });
             }
 
             const valid = await bcrypt.compare(password, user.password_hash);
             if (!valid) {
-                return res.status(401).json({ error: 'Invalid credentials' });
+                return res.status(401).json({ error: 'Password is not matching' });
             }
 
             const userData = { id: user.id, email: user.email, name: user.name, role: user.role };
