@@ -286,6 +286,25 @@ async function initSchema(db) {
     if (parseInt(movieCount.count) === 0 || parseInt(showCount.count) === 0) {
         await seedData(db);
     }
+
+    // Auto-fix: if all shows are in the past, shift them to future dates
+    const futureShows = await db.get("SELECT COUNT(*) as count FROM shows WHERE start_time > NOW()");
+    if (parseInt(showCount.count) > 0 && parseInt(futureShows.count) === 0) {
+        console.log('⚠️  All shows are in the past — updating to future dates...');
+        await db.run(`
+            UPDATE shows s SET
+                start_time = NOW() + (rn.n || ' days')::INTERVAL + (rn.h || ' hours')::INTERVAL,
+                end_time   = NOW() + (rn.n || ' days')::INTERVAL + (rn.h || ' hours')::INTERVAL + INTERVAL '150 minutes'
+            FROM (
+                SELECT id,
+                       (ROW_NUMBER() OVER (ORDER BY id)) % 7 + 1 AS n,
+                       (ROW_NUMBER() OVER (ORDER BY id)) % 5 + 9 AS h
+                FROM shows
+            ) rn
+            WHERE s.id = rn.id
+        `);
+        console.log('✅ Shows updated to future dates');
+    }
 }
 
 async function seedData(db) {
