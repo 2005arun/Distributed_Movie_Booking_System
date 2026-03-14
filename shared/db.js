@@ -280,9 +280,10 @@ async function initSchema(db) {
     );
   `);
 
-    // Seed data if empty
+    // Seed data if empty (check both movies and shows)
     const movieCount = await db.get('SELECT COUNT(*) as count FROM movies');
-    if (parseInt(movieCount.count) === 0) {
+    const showCount = await db.get('SELECT COUNT(*) as count FROM shows');
+    if (parseInt(movieCount.count) === 0 || parseInt(showCount.count) === 0) {
         await seedData(db);
     }
 }
