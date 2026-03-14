@@ -81,6 +81,12 @@ class MemoryStore {
 
 // ==================== REDIS CLIENT FACTORY ====================
 let _instance = null;
+let _fallbackStore = null;
+
+function _getMemoryFallback() {
+    if (!_fallbackStore) _fallbackStore = new MemoryStore();
+    return _fallbackStore;
+}
 
 function createRedis() {
     if (_instance) return _instance;
@@ -92,11 +98,13 @@ function createRedis() {
             const client = new Redis(redisUrl, {
                 maxRetriesPerRequest: 3,
                 retryStrategy(times) {
-                    if (times > 5) {
-                        console.error('❌ Redis: Max retries reached, giving up reconnect');
+                    if (times > 3) {
+                        console.error('❌ Redis: Max retries reached — switching to in-memory fallback');
+                        // Swap singleton to memory store so future calls don't use broken client
+                        _instance = _getMemoryFallback();
                         return null; // stop retrying
                     }
-                    const delay = Math.min(times * 200, 2000);
+                    const delay = Math.min(times * 500, 2000);
                     console.log(`🔄 Redis: Retry #${times} in ${delay}ms...`);
                     return delay;
                 },
@@ -108,8 +116,14 @@ function createRedis() {
                 console.log('✅ Redis connected successfully');
             });
 
-            client.on('ready', () => {
+            client.on('ready', async () => {
                 console.log('✅ Redis ready to accept commands');
+                try {
+                    const pong = await client.ping();
+                    console.log(`🏓 Redis PING → ${pong}`);
+                } catch (e) {
+                    console.error('❌ Redis PING failed:', e.message);
+                }
             });
 
             client.on('error', (err) => {
@@ -129,12 +143,12 @@ function createRedis() {
         } catch (err) {
             console.error(`❌ Redis initialization failed: ${err.message}`);
             console.log('⬇️  Falling back to in-memory cache');
-            _instance = new MemoryStore();
+            _instance = _getMemoryFallback();
             return _instance;
         }
     } else {
         console.log('ℹ️  No REDIS_URL set — using in-memory cache');
-        _instance = new MemoryStore();
+        _instance = _getMemoryFallback();
         return _instance;
     }
 }
