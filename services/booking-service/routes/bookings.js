@@ -26,7 +26,7 @@ module.exports = (db, redis, logger) => {
             // LAYER 1: In-memory lock (Redis replacement)
             const lockedSeats = [];
             for (const seatId of seat_ids) {
-                const lockKey = `seat:${show_id}:${seatId}`;
+                const lockKey = `seat_lock:${show_id}:${seatId}`;
                 const result = await redis.set(lockKey, userId, 'NX', 'EX', LOCK_TTL);
                 if (result === 'OK') {
                     lockedSeats.push(seatId);
@@ -105,7 +105,7 @@ module.exports = (db, redis, logger) => {
 
             // Verify locks
             for (const seatId of seat_ids) {
-                const holder = await redis.get(`seat:${show_id}:${seatId}`);
+                const holder = await redis.get(`seat_lock:${show_id}:${seatId}`);
                 if (holder !== userId) {
                     return res.status(409).json({ error: 'Seat lock expired. Please re-select.', seat_id: seatId });
                 }

@@ -175,7 +175,7 @@ docker rm $(docker ps -aq) 2>$null
 
 # Step 2: Start PostgreSQL & RabbitMQ only (in Docker)
 cd D:\booking_movie_ticket
-docker compose up -d postgres rabbitmq
+docker compose up -d postgres redis rabbitmq
 
 # Wait 15 seconds for database to initialize
 

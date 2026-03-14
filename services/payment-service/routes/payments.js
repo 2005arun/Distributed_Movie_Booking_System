@@ -97,7 +97,7 @@ module.exports = (db, redis, logger) => {
                 await db.run('DELETE FROM seat_locks WHERE booking_id = ?', payment.booking_id);
 
                 for (const bs of bookingSeats) {
-                    await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
+                    await redis.del(`seat_lock:${booking.show_id}:${bs.seat_id}`);
                 }
 
                 // Publish events
@@ -174,7 +174,7 @@ module.exports = (db, redis, logger) => {
                 await db.run('DELETE FROM booking_seats WHERE booking_id = ?', payment.booking_id);
 
                 for (const bs of bookingSeats) {
-                    await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
+                    await redis.del(`seat_lock:${booking.show_id}:${bs.seat_id}`);
                 }
 
                 logger.info(`Payment FAILED: ${payment.id}`);
@@ -225,7 +225,7 @@ module.exports = (db, redis, logger) => {
                 const bookingSeats = await db.all('SELECT * FROM booking_seats WHERE booking_id = ?', payment.booking_id);
                 const booking = await db.get('SELECT * FROM bookings WHERE id = ?', payment.booking_id);
                 for (const bs of bookingSeats) {
-                    await redis.del(`seat:${booking.show_id}:${bs.seat_id}`);
+                    await redis.del(`seat_lock:${booking.show_id}:${bs.seat_id}`);
                 }
 
                 if (req.kafkaProducer) {
