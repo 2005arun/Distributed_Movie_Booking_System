@@ -2,7 +2,8 @@
 # CineBook - Movie Ticket Booking System
 # Docker Compose (PostgreSQL + Redis + RabbitMQ)
 #
-# Run:  docker-compose up --build
+# Local dev:  docker compose up --build
+# Production: docker compose -f docker-compose.cloud.yml up -d
 # Open: http://localhost:5173
 # Login: admin@movieticket.com / admin123
 # ====================================================

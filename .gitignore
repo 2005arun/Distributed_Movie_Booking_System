@@ -5,6 +5,9 @@ data/*.db-shm
 data/*.json
 *.log
 .env
+.env.local
+.env.production
+check-redis.js
 .DS_Store
 Thumbs.db
 frontend/dist/

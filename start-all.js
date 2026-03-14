@@ -2,22 +2,36 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// Load .env file if it exists
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    for (const line of envContent.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-            const idx = trimmed.indexOf('=');
-            if (idx > 0) {
-                const key = trimmed.slice(0, idx).trim();
-                const val = trimmed.slice(idx + 1).trim();
-                if (!process.env[key]) process.env[key] = val;
+// ==================== ENV FILE LOADING ====================
+// Priority: .env.{NODE_ENV} → .env.local → .env
+const NODE_ENV = process.env.NODE_ENV || 'local';
+const envCandidates = [
+    `.env.${NODE_ENV}`,   // .env.local or .env.production
+    '.env.local',          // fallback for dev
+    '.env',                // legacy fallback
+];
+
+let loadedEnvFile = null;
+for (const name of envCandidates) {
+    const filePath = path.join(__dirname, name);
+    if (fs.existsSync(filePath)) {
+        const envContent = fs.readFileSync(filePath, 'utf8');
+        for (const line of envContent.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                const idx = trimmed.indexOf('=');
+                if (idx > 0) {
+                    const key = trimmed.slice(0, idx).trim();
+                    const val = trimmed.slice(idx + 1).trim();
+                    if (!process.env[key]) process.env[key] = val;
+                }
             }
         }
+        loadedEnvFile = name;
+        break;
     }
 }
+// ===========================================================
 
 const services = [
     { name: 'Auth Service', port: 3001, dir: 'services/auth-service' },
@@ -36,7 +50,9 @@ const children = [];
 console.log('\n╔══════════════════════════════════════════════════╗');
 console.log('║   🎬 CineBook - Movie Ticket Booking System     ║');
 console.log('║   Starting all microservices...                  ║');
-console.log('╚══════════════════════════════════════════════════╝\n');
+console.log('╚══════════════════════════════════════════════════╝');
+console.log(`  📁 Env: ${loadedEnvFile || 'none'} (NODE_ENV=${NODE_ENV})`);
+console.log('');
 
 for (const svc of services) {
     const cwd = path.join(ROOT, svc.dir);
